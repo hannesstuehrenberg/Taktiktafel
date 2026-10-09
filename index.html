@@ -229,11 +229,6 @@ legend { padding: 0; margin-bottom: 6px; font-size: 14px; font-weight: 500; }
 .split-legend { display: flex; justify-content: space-between; font-size: 14px; font-variant-numeric: tabular-nums; }
 .sub { margin: 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); margin: 0; font-size: 14px; }
-table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
-.tri th, .tri td { padding: 5px 0; border-bottom: 1px solid var(--rule); text-align: right; }
-.tri th { font-weight: 500; color: var(--muted); font-size: 12px; }
-.tri th:first-child, .tri td:first-child { text-align: left; }
-.tri td:first-child { display: flex; align-items: center; gap: 7px; font-weight: 600; }
 .gaps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .gaps li::marker { color: var(--signal); font-weight: 700; }
 .pinfo { background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; }
@@ -510,7 +505,6 @@ table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
         <h2 class="eyebrow" id="h-stats">Auswertung</h2>
         <div id="analysis" class="free-only"></div>
         <div id="control" class="lineup-only"></div>
-        <div id="tri-stats" class="lineup-only"></div>
         <div id="gap-stats" class="lineup-only"></div>
         <div id="player-info" class="lineup-only"></div>
       </section>
@@ -1262,16 +1256,6 @@ table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
     } else {
       ctl.innerHTML = `<p class="muted">Ohne Gegner gehört Heim die ganze Fläche. Blende den Gegner ein, um die Raumkontrolle zu messen.</p>`;
     }
-
-    const rows = g.teams.map(t => {
-      const tris = g.team[t].tris;
-      const thin = tris.filter(x => x.min < THIN).length;
-      const avg = tris.reduce((s, x) => s + x.min, 0) / (tris.length || 1);
-      return `<tr><td><span class="swatch ${t}"></span>${TEAM_LABEL[t]}</td><td>${tris.length}</td><td>${thin}</td><td>${Math.round(avg)}°</td></tr>`;
-    }).join("");
-    $("#tri-stats").innerHTML = `<table class="tri">
-      <thead><tr><th>Team-Dreiecke</th><th>Anzahl</th><th>spitz</th><th>Ø kleinster Winkel</th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
 
     const gs = $("#gap-stats");
     if (state.gaps === "off" || !g.team[state.gaps]) gs.innerHTML = "";
