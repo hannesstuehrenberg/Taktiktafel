@@ -342,6 +342,7 @@ table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 .shadow { fill: #000; fill-opacity: .26; }
 .pass-line.open { stroke: #7dffb0; stroke-opacity: .55; stroke-width: .2; }
 .pass-line.blocked { stroke: var(--signal); stroke-dasharray: .5 .5; }
+.pass-line.tight { stroke: #ffe08a; stroke-opacity: .85; stroke-width: .22; stroke-dasharray: 1.2 .5; }
 .pass-line.best { stroke: #7dffb0; stroke-opacity: 1; stroke-width: .5; }
 .note-label {
   font-family: var(--font-body); font-weight: 600; font-size: 12.5px; text-anchor: middle;
@@ -639,6 +640,8 @@ table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
   // Ball am Fuß: näher als ATTACH_R heftet er sich an, dann liegt er BALL_GAP vor der Spielermitte
   const ATTACH_R = 3, BALL_GAP = 2.4;
   // BLOCK_R: so nah an der Passlinie gilt ein Gegner als Blocker; der Deckungsschatten ist genauso breit
+  // TIGHT_PASS: so viel Luft (m) zum Schatten gilt noch als knapp
+  const TIGHT_PASS = 1;
   const HOLD_R = 2.5, ZONE_R = 15, BLOCK_R = 2, TIGHT = 3, PRESS = 6;
 
   const $ = s => document.querySelector(s);
@@ -1092,9 +1095,9 @@ table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 
   function passesMarkup(an) {
     if (!isFree() || !state.fv.passes || !an.holder) return "";
-    const h = an.holder.p;
-    return an.options.map(o => `<line class="pass-line ${o.blocker ? "blocked" : "open"}${o === an.best ? " best" : ""}"
-      x1="${h.x}" y1="${h.y}" x2="${o.p.x}" y2="${o.p.y}"/>`).join("");
+    const b = state.ball;
+    return an.options.map(o => `<line class="pass-line ${o.blocker ? "blocked" : o.close ? "tight" : "open"}${o === an.best ? " best" : ""}"
+      x1="${b.x}" y1="${b.y}" x2="${o.p.x}" y2="${o.p.y}"/>`).join("");
   }
 
   function render() {
@@ -1152,14 +1155,15 @@ table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
     return near;
   }
 
-  // Deckungsschatten: Kegel vom Ball an einem Kreis mit Radius BLOCK_R um den Verteidiger vorbei, 30 m lang
+  // Deckungsschatten: Kegel vom Ball an einem Kreis mit Radius BLOCK_R um den Verteidiger vorbei, bis über den Feldrand
+  // hinaus (die Ebene schneidet am Feld ab), damit er genau dort liegt, wo die Analyse Pässe als zugestellt wertet
   function shadowsMarkup(g, holder) {
     if (!holder || !view().shadows) return "";
     const b = state.ball, defenders = players(other(holder.t));
     return defenders.map(c => {
       const dx = c.x - b.x, dy = c.y - b.y, d = Math.hypot(dx, dy);
       if (d <= BLOCK_R + .2) return "";
-      const a = Math.asin(BLOCK_R / d), base = Math.atan2(dy, dx), near = Math.sqrt(d * d - BLOCK_R * BLOCK_R), far = d + 30;
+      const a = Math.asin(BLOCK_R / d), base = Math.atan2(dy, dx), near = Math.sqrt(d * d - BLOCK_R * BLOCK_R), far = d + 160;
       const at = (ang, len) => `${b.x + Math.cos(ang) * len} ${b.y + Math.sin(ang) * len}`;
       // Die Kante zwischen den Tangentenpunkten liegt im Kreis und damit unter der Spielfigur
       return `<path class="shadow" d="M${at(base - a, near)}L${at(base + a, near)}L${at(base + a, far)}L${at(base - a, far)}Z"/>`;
@@ -1179,17 +1183,23 @@ table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
     const opps = players(o);
     const pressure = q => opps.length ? Math.min(...opps.map(x => dist(q, x))) : Infinity;
     an.holderPressure = { d: pressure(near.p), by: opps.length ? opps.reduce((m, x) => dist(near.p, x) < dist(near.p, m) ? x : m) : null };
+    // Gepasst wird vom Ball aus, genau wie der Deckungsschatten gezeichnet wird. Ein Gegner direkt am Ball
+    // wirft keinen Schatten (er zählt als Druck), sonst gilt: Linie näher als BLOCK_R am Gegner = im Schatten.
+    const shooters = opps.filter(x => dist(x, ball) > BLOCK_R + .2);
     an.options = players(t).filter(q => q !== near.p).map(q => {
-      let blocker = null, bd = Infinity;
-      for (const x of opps) {
-        const s = segDist(x, near.p, q);
-        if (s.t > .08 && s.t < .95 && s.d < BLOCK_R && s.d < bd) { blocker = x; bd = s.d; }
+      let blocker = null, bd = Infinity, close = null, cd = Infinity;
+      for (const x of shooters) {
+        const s = segDist(x, ball, q);
+        if (s.t <= 0 || s.t >= 1) continue;
+        if (s.d < BLOCK_R && s.d < bd) { blocker = x; bd = s.d; }
+        else if (s.d < BLOCK_R + TIGHT_PASS && s.d < cd) { close = x; cd = s.d; }
       }
-      return { p: q, blocker, free: pressure(q), gain: (q.x - near.p.x) * dir, len: dist(near.p, q) };
+      return { p: q, blocker, close: blocker ? null : close, free: pressure(q), gain: (q.x - near.p.x) * dir, len: dist(ball, q) };
     });
     const open = an.options.filter(x => !x.blocker);
     an.best = open.length ? open.reduce((m, x) => {
-      const score = x => Math.min(x.free, 12) + .5 * x.gain;
+      // Knappe Pässe sind möglich, aber riskant: deutlich schlechter bewertet
+      const score = x => Math.min(x.free, 12) + .5 * x.gain - (x.close ? 6 : 0);
       return score(x) > score(m) ? x : m;
     }) : null;
     an.gap = findGaps(o)[0] || null;
@@ -1217,12 +1227,13 @@ table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
       if (!an.options.length) items.push("Kein Mitspieler auf dem Feld: Dribbling oder Ball abschirmen.");
       else if (state.fv.passes) {
         for (const x of an.options) {
-          const way = x.blocker ? `Passweg <b>zugestellt</b> von ${esc(who(x.blocker))}` : "Passweg offen";
+          const way = x.blocker ? `Passweg <b>zugestellt</b> von ${esc(who(x.blocker))}`
+            : x.close ? `Passweg <b>knapp</b> an ${esc(who(x.close))} vorbei` : "Passweg offen";
           const gain = Math.abs(x.gain) < 1 ? "auf gleicher Höhe" : x.gain > 0 ? `${fmt(x.gain, 0)} m nach vorn` : `${fmt(-x.gain, 0)} m zurück`;
           const line = `${esc(who(x.p))}: ${way}, ${pressureText(x.free)}, ${gain}`;
           items.push(x === an.best ? `<span class="best">${line}</span>` : line);
         }
-        if (an.best) items.push(`<span class="best">Empfehlung: Pass auf ${esc(who(an.best.p))}</span> (grün eingezeichnet). Offener Passweg, ${
+        if (an.best) items.push(`<span class="best">Empfehlung: Pass auf ${esc(who(an.best.p))}</span> (grün eingezeichnet). ${an.best.close ? `Knapp an ${esc(who(an.best.close))} vorbei, riskant` : "Offener Passweg"}, ${
           an.best.free === Infinity ? "ohne Gegner" : `${fmt(an.best.free)} m Platz`}${an.best.gain >= 1 ? ` und ${fmt(an.best.gain, 0)} m Raumgewinn` : ""}.`);
         else items.push("Alle Passwege sind zugestellt: freilaufen, Dribbling oder Ball sichern.");
       }
