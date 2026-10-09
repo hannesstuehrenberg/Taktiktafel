@@ -1,0 +1,2209 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voronoi-Taktiktafel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: Spielfeld füllt die Fläche, Bedienleiste rechts daneben (schmal: darunter, Feld hochkant). */
+:root {
+  --paper: #eef2ee;
+  --panel: #f8faf7;
+  --ink: #17211b;
+  --muted: #59665e;
+  --rule: #d3dbd5;
+  --accent: #1d6b43;
+  --accent-ink: #ffffff;
+  --field: #2f7b49;
+  --field-stripe: #2b7244;
+  --field-edge: #25643b;
+  --chalk: rgb(255 255 255 / .85);
+  --home: #2456d3;
+  --home-soft: #cfdbff;
+  --away: #f1c21b;
+  --away-soft: #ffe993;
+  --signal: #ff6b21;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "Barlow", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #0e1411;
+    --panel: #131b17;
+    --ink: #e3eae5;
+    --muted: #93a29a;
+    --rule: #28332d;
+    --accent: #5cc58b;
+    --accent-ink: #0a140f;
+    --field: #24603a;
+    --field-stripe: #215835;
+    --field-edge: #1b4b2d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0e1411;
+  --panel: #131b17;
+  --ink: #e3eae5;
+  --muted: #93a29a;
+  --rule: #28332d;
+  --accent: #5cc58b;
+  --accent-ink: #0a140f;
+  --field: #24603a;
+  --field-stripe: #215835;
+  --field-edge: #1b4b2d;
+}
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.app {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding-inline: clamp(16px, 2vw, 28px);
+  box-sizing: border-box;
+}
+
+/* Kopfzeile */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px 24px;
+  padding-block: 14px 12px;
+}
+.bar h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1.05;
+  letter-spacing: .01em;
+  text-wrap: balance;
+}
+.bar p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+.bar-end { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+.history { display: flex; gap: 2px; }
+.icon-btn {
+  width: 30px; height: 30px; padding: 5px; display: grid; place-items: center;
+  color: var(--muted); background: none; border: 0; border-radius: 6px; cursor: pointer;
+}
+.icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.icon-btn:hover:not(:disabled) { color: var(--ink); background: var(--rule); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Hauptbereich */
+.main { display: grid; gap: 20px; padding-block-end: 16px; min-height: 0; }
+.board { position: relative; min-height: 0; display: flex; align-items: center; justify-content: center; }
+#board { display: block; width: 100%; height: auto; aspect-ratio: 113 / 76; user-select: none; -webkit-user-select: none; }
+.board-error {
+  position: absolute; inset: auto 16px 16px; margin: 0; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+}
+
+@media (min-width: 900px) {
+  .app { height: 100%; }
+  .main { grid-template-columns: minmax(0, 1fr) 340px; }
+  #board { height: 100%; aspect-ratio: auto; }
+  .panel { overflow-y: auto; min-height: 0; padding-inline-end: 6px; }
+}
+@media (max-width: 720px) {
+  #board { aspect-ratio: 76 / 113; }
+}
+
+
+/* Bedienleiste */
+.panel { display: grid; align-content: start; }
+.group { display: grid; gap: 12px; padding-block: 16px; border-top: 1px solid var(--rule); }
+.group:first-child { border-top: 0; padding-top: 2px; }
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.team-row { display: grid; grid-template-columns: 74px minmax(0, 1fr); align-items: center; gap: 10px; }
+.team-row label { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.swatch { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgb(0 0 0 / .15); }
+.swatch.home { background: var(--home); }
+.swatch.away { background: var(--away); }
+select {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+select:disabled { opacity: .5; }
+.check { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+legend { padding: 0; margin-bottom: 6px; font-size: 14px; font-weight: 500; }
+.seg { display: flex; border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.seg label {
+  flex: 1;
+  text-align: center;
+  padding: 6px 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-left: 1px solid var(--rule);
+  transition: background-color .15s, color .15s;
+}
+.seg label:first-of-type { border-left: 0; }
+.seg input:checked + label { background: var(--accent); color: var(--accent-ink); }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -3px; }
+.seg input:disabled + label { opacity: .4; cursor: not-allowed; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn {
+  font: 600 14px var(--font-body);
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn:disabled { opacity: .55; cursor: progress; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.text-in {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font: 14px var(--font-body);
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+.text-in:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.share-load { display: grid; gap: 6px; }
+.share-load label { font-size: 14px; font-weight: 500; }
+.field-row { display: flex; gap: 8px; }
+.sub:empty { display: none; }
+.btn:disabled:not(.primary) { cursor: default; opacity: .45; }
+.scenes { list-style: none; margin: 0; padding: 0; display: grid; }
+.scenes:empty { display: none; }
+.scene { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid var(--rule); }
+.scene:first-child { border-top: 1px solid var(--rule); }
+.scene-load {
+  display: grid; gap: 1px; text-align: left; padding: 7px 0; min-width: 0;
+  font: inherit; color: var(--ink); background: none; border: 0; cursor: pointer;
+}
+.scene-load strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-load span { font-size: 12px; color: var(--muted); }
+.scene-load:hover strong { color: var(--accent); }
+.scene-load:focus-visible, .scene-del:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.scene-del {
+  width: 28px; height: 28px; font-size: 18px; line-height: 1; color: var(--muted);
+  background: none; border: 0; border-radius: 4px; cursor: pointer;
+}
+.scene-del:hover { color: var(--signal); }
+
+/* Auswertung */
+.metric { display: grid; gap: 6px; }
+.metric-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 600; }
+.metric-note { font-weight: 400; font-size: 12px; color: var(--muted); }
+.split { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--away); }
+.split-home { background: var(--home); transition: width .12s; }
+.split-legend { display: flex; justify-content: space-between; font-size: 14px; font-variant-numeric: tabular-nums; }
+.sub { margin: 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); margin: 0; font-size: 14px; }
+table.tri { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.tri th, .tri td { padding: 5px 0; border-bottom: 1px solid var(--rule); text-align: right; }
+.tri th { font-weight: 500; color: var(--muted); font-size: 12px; }
+.tri th:first-child, .tri td:first-child { text-align: left; }
+.tri td:first-child { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+.gaps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.gaps li::marker { color: var(--signal); font-weight: 700; }
+.pinfo { background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; }
+.pinfo-head { display: flex; align-items: center; gap: 8px; }
+.pinfo-head strong { font-family: var(--font-display); font-size: 20px; line-height: 1; }
+.pinfo-head span:last-child { color: var(--muted); font-size: 14px; }
+.kv { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; font-size: 14px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.kv dd small { display: block; color: var(--muted); font-size: 12px; }
+
+/* Begriffe */
+.terms { margin: 0; display: grid; gap: 12px; }
+.term { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; }
+.term svg { width: 22px; height: 22px; margin-top: 1px; }
+.term dt { font-weight: 600; }
+.term dd { margin: 0; color: var(--muted); font-size: 14px; }
+.g-cell { fill: var(--home); fill-opacity: .35; stroke: var(--home); stroke-width: 1.2; }
+.g-line { stroke: var(--ink); stroke-width: 1.6; fill: none; }
+.g-dot { fill: var(--ink); }
+.g-circle { fill: none; stroke: var(--muted); stroke-width: 1.3; stroke-dasharray: 2.5 2; }
+.g-gap { fill: var(--signal); fill-opacity: .18; stroke: var(--signal); stroke-width: 1.6; }
+.g-thin { fill: var(--signal); fill-opacity: .4; stroke: var(--signal); stroke-width: 1.2; }
+.g-shadow { fill: var(--ink); fill-opacity: .22; }
+.g-def { fill: var(--away); }
+.note, .source { margin: 0; font-size: 13px; color: var(--muted); }
+.source { font-style: italic; }
+
+/* Spielfeld (SVG, Einheiten = Meter) */
+.turf-a { fill: var(--field); }
+.turf-b { fill: var(--field-stripe); }
+.turf-edge { fill: var(--field-edge); }
+.chalk * { fill: none; stroke: var(--chalk); stroke-width: .15; }
+.chalk .spot { fill: var(--chalk); stroke: none; }
+.chalk .goal { fill: rgb(255 255 255 / .18); }
+.cell { stroke: #fff; stroke-opacity: .45; stroke-width: .14; fill-opacity: .34; }
+.cell.home { fill: var(--home); }
+.cell.away { fill: var(--away); }
+.cell.sel { stroke-opacity: 1; stroke-width: .4; fill-opacity: .5; }
+.edges { fill: none; stroke-width: .22; stroke-linecap: round; }
+.edges.home { stroke: var(--home-soft); }
+.edges.away { stroke: var(--away-soft); }
+.edges.cross { stroke: #fff; stroke-opacity: .5; stroke-width: .14; stroke-dasharray: .6 .6; }
+.cc { fill: none; stroke-width: .12; stroke-dasharray: .5 .4; stroke-opacity: .85; }
+.cc.home { stroke: var(--home-soft); }
+.cc.away { stroke: var(--away-soft); }
+.cc.cross { stroke: #fff; }
+.ccdot { fill: #fff; }
+.thin { fill: var(--signal); fill-opacity: .35; stroke: var(--signal); stroke-width: .22; }
+.gap { fill: var(--signal); fill-opacity: .14; stroke: var(--signal); stroke-width: .3; }
+.gap-tri { fill: none; stroke: var(--signal); stroke-width: .16; stroke-dasharray: .5 .4; }
+.gap-x { stroke: var(--signal); stroke-width: .3; }
+.gap-label {
+  font-family: var(--font-display); font-weight: 700; font-size: 17px;
+  fill: #fff; text-anchor: middle; paint-order: stroke; stroke: rgb(0 0 0 / .55); stroke-width: 3.5px;
+}
+.link { stroke-width: .4; stroke-linecap: round; }
+.link.mate { stroke: #fff; }
+.link.opp { stroke: var(--signal); stroke-dasharray: .7 .5; }
+.grow-fill { fill-opacity: .5; }
+.grow-fill.home { fill: var(--home); }
+.grow-fill.away { fill: var(--away); }
+.grow-ring { fill: none; stroke: #fff; stroke-opacity: .65; stroke-width: .12; }
+.token, .ball { cursor: grab; touch-action: none; outline: none; }
+#board.dragging, #board.dragging .token, #board.dragging .ball { cursor: grabbing; }
+.hit { fill: transparent; }
+.disc { stroke: #fff; stroke-width: .3; }
+.token.home .disc, .bench-tok.home .disc { fill: var(--home); }
+.token.away .disc, .bench-tok.away .disc { fill: var(--away); }
+.ring { fill: none; stroke: #fff; stroke-width: .3; opacity: 0; }
+.token:focus-visible .ring { opacity: 1; }
+.token.selected .ring { opacity: 1; stroke: var(--signal); stroke-width: .45; }
+.tok-label {
+  font-family: var(--font-display); font-weight: 700; font-size: 14.5px;
+  text-anchor: middle; dominant-baseline: central; pointer-events: none;
+}
+.token.home .tok-label, .bench-tok.home .tok-label { fill: #fff; }
+.token.away .tok-label, .bench-tok.away .tok-label { fill: #1c1a0c; }
+.ball-disc { fill: #fff; stroke: #111; stroke-width: .15; }
+.ball-core { fill: #111; }
+.ball:focus-visible .ball-disc { stroke: var(--signal); stroke-width: .35; }
+
+/* Freie Situation */
+.app[data-mode="free"] .lineup-only, .app:not([data-mode="free"]) .free-only { display: none !important; }
+#board.free { aspect-ratio: 113 / 85; }
+@media (max-width: 720px) { #board.free { aspect-ratio: 85 / 113; } }
+@media (min-width: 900px) { #board.free { aspect-ratio: auto; } }
+#board.drawing { cursor: crosshair; touch-action: none; }
+#board.drawing .token, #board.drawing .ball { cursor: crosshair; }
+.bench-strip.home { fill: var(--home); fill-opacity: .16; }
+.bench-strip.away { fill: var(--away); fill-opacity: .16; }
+.bench-tok { cursor: grab; touch-action: none; outline: none; }
+.bench-tok .disc { opacity: .8; }
+.bench-tok:focus-visible .ring { opacity: 1; }
+.bench-label { font-family: var(--font-body); font-weight: 600; font-size: 12px; fill: rgb(255 255 255 / .7); }
+.arrow { fill: none; stroke-width: .35; stroke-linecap: round; }
+.arrow.run { stroke: #fff; }
+.arrow.pass { stroke: #fff; stroke-dasharray: .9 .6; }
+.arrow-head { fill: #fff; }
+.arrow.preview { stroke-opacity: .7; }
+.arrow-hit { fill: none; stroke: transparent; stroke-width: 2.2; pointer-events: none; }
+#board.free:not(.drawing) .arrow-hit { pointer-events: stroke; cursor: pointer; }
+.arrow.sel { stroke-width: .55; }
+.arrow-handle { fill: #fff; stroke: var(--ink); stroke-width: .18; cursor: move; touch-action: none; }
+.pass-line { stroke-width: .28; stroke-linecap: round; }
+.shadow { fill: #000; fill-opacity: .26; }
+.pass-line.open { stroke: #7dffb0; stroke-opacity: .55; stroke-width: .2; }
+.pass-line.blocked { stroke: var(--signal); stroke-dasharray: .5 .5; }
+.pass-line.best { stroke: #7dffb0; stroke-opacity: 1; stroke-width: .5; }
+.note-label {
+  font-family: var(--font-body); font-weight: 600; font-size: 12.5px; text-anchor: middle;
+  fill: #fff; paint-order: stroke; stroke: rgb(0 0 0 / .7); stroke-width: 3.2px; stroke-linejoin: round; pointer-events: none;
+}
+[hidden] { display: none !important; }
+.player-edit, .arrow-edit { display: grid; gap: 10px; }
+.edit-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
+.edit-field { display: grid; gap: 4px; font-size: 13px; font-weight: 500; color: var(--muted); }
+.analysis { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
+.analysis li::marker { color: var(--accent); }
+.analysis .best { font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .seg label, .split-home { transition: none; }
+}
+</style>
+
+<div class="app">
+  <header class="bar">
+    <div>
+      <h1>Voronoi-Taktiktafel</h1>
+      <p>Raumkontrolle und Passnetz nach Voronoi und Delaunay</p>
+    </div>
+    <div class="bar-end">
+      <div class="history">
+        <button type="button" class="icon-btn" id="btn-undo" disabled aria-label="Rückgängig" title="Rückgängig (⌘Z bzw. Strg+Z)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5 3.5 9l4 4M4 9h7.5a5 5 0 0 1 0 10H9"/></svg></button>
+        <button type="button" class="icon-btn" id="btn-redo" disabled aria-label="Wiederholen" title="Wiederholen (⇧⌘Z bzw. Strg+Y)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5l4 4-4 4M16 9H8.5a5 5 0 0 0 0 10H11"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <section class="board" aria-label="Spielfeld">
+      <svg id="board" viewBox="-4 -4 113 76" role="application" aria-label="Spielfeld mit verschiebbaren Spielern">
+        <g id="field">
+          <defs>
+            <clipPath id="pitch-clip"><rect x="0" y="0" width="105" height="68"/></clipPath>
+          </defs>
+          <g id="pitch"></g>
+          <g id="layer-bench"></g>
+          <g id="layer-cells"></g>
+          <g id="layer-shadows" clip-path="url(#pitch-clip)"></g>
+          <g id="layer-grow" clip-path="url(#pitch-clip)"></g>
+          <g id="layer-thin"></g>
+          <g id="layer-edges"></g>
+          <g id="layer-circles" clip-path="url(#pitch-clip)"></g>
+          <g id="layer-gaps" clip-path="url(#pitch-clip)"></g>
+          <g id="layer-passes"></g>
+          <g id="layer-arrows"></g>
+          <g id="layer-focus"></g>
+          <g id="layer-tokens"></g>
+          <g id="layer-notes"></g>
+          <g id="layer-gap-labels"></g>
+        </g>
+      </svg>
+      <p class="board-error" id="board-error" hidden>Die Geometrie-Bibliothek konnte nicht gestartet werden. Lade die Seite neu.</p>
+    </section>
+
+    <aside class="panel">
+      <section class="group" aria-labelledby="h-mode">
+        <h2 class="eyebrow" id="h-mode">Modus</h2>
+        <div class="seg">
+          <input type="radio" name="mode" id="mode-lineup" value="lineup"><label for="mode-lineup">Ganze Mannschaften</label>
+          <input type="radio" name="mode" id="mode-free" value="free"><label for="mode-free">Freie Situation</label>
+        </div>
+      </section>
+
+      <section class="group lineup-only" aria-labelledby="h-lineup">
+        <h2 class="eyebrow" id="h-lineup">Aufstellung</h2>
+        <div class="team-row">
+          <label for="formation-home"><span class="swatch home"></span>Heim</label>
+          <select id="formation-home"></select>
+        </div>
+        <div class="team-row">
+          <label for="formation-away"><span class="swatch away"></span>Gast</label>
+          <select id="formation-away"></select>
+        </div>
+        <label class="check" for="show-away"><input type="checkbox" id="show-away" checked> Gegner auf dem Feld</label>
+        <div class="btn-row"><button type="button" class="btn" id="btn-reset">Aufstellung zurücksetzen</button></div>
+      </section>
+
+      <section class="group free-only" aria-labelledby="h-free">
+        <h2 class="eyebrow" id="h-free">Situation</h2>
+        <p class="muted">Spieler von der Bank unter dem Feld aufs Feld ziehen, zum Entfernen zurück auf die Bank. Den Ball an einen Spieler ziehen: Er klebt dann an ihm und läuft mit. Doppeltippen auf einen anderen Spieler spielt den Pass. Mit Umschalt gezogen geht die ganze Mannschaft mit.</p>
+        <fieldset>
+          <legend>Werkzeug</legend>
+          <div class="seg">
+            <input type="radio" name="tool" id="tool-move" value="move" checked><label for="tool-move">Bewegen</label>
+            <input type="radio" name="tool" id="tool-run" value="run"><label for="tool-run">Laufweg</label>
+            <input type="radio" name="tool" id="tool-pass" value="pass"><label for="tool-pass">Passweg</label>
+          </div>
+        </fieldset>
+        <p class="sub">Laufweg durchgezogen, Passweg gestrichelt. Pfeile rasten an Spielern ein. Zum Biegen den Punkt in der Mitte eines Pfeils ziehen.</p>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btn-clear-arrows">Alle Pfeile löschen</button>
+          <button type="button" class="btn" id="btn-clear">Feld leeren</button>
+        </div>
+      </section>
+
+      <section class="group free-only" id="sel-edit" aria-labelledby="h-sel" hidden>
+        <h2 class="eyebrow" id="h-sel">Auswahl</h2>
+        <div class="player-edit" id="player-edit" hidden>
+          <div class="edit-row">
+            <label class="edit-field" for="label-in">Kürzel<input class="text-in" id="label-in" maxlength="3" autocomplete="off" spellcheck="false"></label>
+            <label class="edit-field" for="note-in">Notiz<input class="text-in" id="note-in" maxlength="60" autocomplete="off" placeholder="z. B. Rückraum absichern"></label>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn" id="btn-pass-here" hidden>Ball hierhin passen</button>
+            <button type="button" class="btn" id="btn-remove">Vom Feld nehmen</button>
+          </div>
+        </div>
+        <div class="arrow-edit" id="arrow-edit" hidden>
+          <p class="sub" id="arrow-info"></p>
+          <div class="btn-row">
+            <button type="button" class="btn" id="btn-arrow-kind">In Passweg ändern</button>
+            <button type="button" class="btn" id="btn-straight">Gerade</button>
+            <button type="button" class="btn" id="btn-del-arrow">Löschen</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="group free-only" aria-labelledby="h-show">
+        <h2 class="eyebrow" id="h-show">Einblenden</h2>
+        <label class="check" for="fv-passes"><input type="checkbox" id="fv-passes"> Passwege des Ballführenden bewerten</label>
+        <label class="check" for="fv-gaps"><input type="checkbox" id="fv-gaps"> Größte Lücke im verteidigenden Block</label>
+        <label class="check" for="fv-net"><input type="checkbox" id="fv-net"> Dreiecke je Team (Delaunay)</label>
+        <label class="check" for="fv-shadows"><input type="checkbox" id="fv-shadows"> Deckungsschatten der Verteidiger</label>
+        <label class="check" for="fv-cells"><input type="checkbox" id="fv-cells"> Raum je Spieler (Voronoi)</label>
+      </section>
+
+      <section class="group lineup-only" aria-labelledby="h-geo">
+        <h2 class="eyebrow" id="h-geo">Geometrie</h2>
+        <fieldset>
+          <legend>Voronoi-Zellen</legend>
+          <div class="seg">
+            <input type="radio" name="voronoi" id="voronoi-off" value="off"><label for="voronoi-off">Aus</label>
+            <input type="radio" name="voronoi" id="voronoi-all" value="all"><label for="voronoi-all">Alle</label>
+            <input type="radio" name="voronoi" id="voronoi-home" value="home"><label for="voronoi-home">Heim</label>
+            <input type="radio" name="voronoi" id="voronoi-away" value="away"><label for="voronoi-away">Gast</label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Delaunay-Netz</legend>
+          <div class="seg">
+            <input type="radio" name="delaunay" id="delaunay-off" value="off"><label for="delaunay-off">Aus</label>
+            <input type="radio" name="delaunay" id="delaunay-all" value="all"><label for="delaunay-all">Alle</label>
+            <input type="radio" name="delaunay" id="delaunay-home" value="home"><label for="delaunay-home">Heim</label>
+            <input type="radio" name="delaunay" id="delaunay-away" value="away"><label for="delaunay-away">Gast</label>
+            <input type="radio" name="delaunay" id="delaunay-team" value="team"><label for="delaunay-team">Je Team</label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Freiräume im Block von</legend>
+          <div class="seg">
+            <input type="radio" name="gaps" id="gaps-off" value="off"><label for="gaps-off">Aus</label>
+            <input type="radio" name="gaps" id="gaps-away" value="away"><label for="gaps-away">Gast</label>
+            <input type="radio" name="gaps" id="gaps-home" value="home"><label for="gaps-home">Heim</label>
+          </div>
+        </fieldset>
+        <label class="check" for="show-shadows"><input type="checkbox" id="show-shadows"> Deckungsschatten (Ball an einen Spieler heften)</label>
+      </section>
+
+      <section class="group" aria-labelledby="h-stats">
+        <h2 class="eyebrow" id="h-stats">Auswertung</h2>
+        <div id="analysis" class="free-only"></div>
+        <div id="control" class="lineup-only"></div>
+        <div id="tri-stats" class="lineup-only"></div>
+        <div id="gap-stats" class="lineup-only"></div>
+        <div id="player-info" class="lineup-only"></div>
+      </section>
+
+      <section class="group" aria-labelledby="h-terms">
+        <h2 class="eyebrow" id="h-terms">Begriffe</h2>
+        <dl class="terms">
+          <div class="term">
+            <svg viewBox="0 0 22 22" aria-hidden="true"><path class="g-cell" d="M4 7 11 2.5 18.5 6 19 15 11 19.5 3 15Z"/><circle class="g-dot" cx="11" cy="11" r="2"/></svg>
+            <div><dt>Voronoi-Zelle</dt><dd>Jede Stelle gehört dem Spieler, der ihr am nächsten ist. Die Zelle ist der Raum, den er zuerst erreicht.</dd></div>
+          </div>
+          <div class="term">
+            <svg viewBox="0 0 22 22" aria-hidden="true"><path class="g-line" d="M3 18 11 4 19 16Z"/><circle class="g-dot" cx="3" cy="18" r="2"/><circle class="g-dot" cx="11" cy="4" r="2"/><circle class="g-dot" cx="19" cy="16" r="2"/></svg>
+            <div><dt>Delaunay-Linie</dt><dd>Verbindet zwei Spieler, deren Zellen sich berühren. Im eigenen Team sind das die kurzen Passwege.</dd></div>
+          </div>
+          <div class="term lineup-only">
+            <svg viewBox="0 0 22 22" aria-hidden="true"><circle class="g-circle" cx="11" cy="11" r="9"/><path class="g-line" d="M4.5 16.5 11 2 19.6 13.2Z"/><circle class="g-dot" cx="11" cy="11" r="1.6"/></svg>
+            <div><dt>Umkreis</dt><dd>Läuft durch die drei Ecken eines Delaunay-Dreiecks und enthält keinen weiteren Spieler. Sein Mittelpunkt ist eine Ecke der Voronoi-Zellen.</dd></div>
+          </div>
+          <div class="term">
+            <svg viewBox="0 0 22 22" aria-hidden="true"><circle class="g-gap" cx="11" cy="11" r="8.5"/><circle class="g-dot" cx="3" cy="8" r="2"/><circle class="g-dot" cx="17" cy="4" r="2"/><circle class="g-dot" cx="15" cy="19" r="2"/></svg>
+            <div><dt>Freiraum</dt><dd>Der größte leere Umkreis zwischen drei Gegenspielern. Sein Mittelpunkt liegt am weitesten von allen dreien entfernt: Dorthin laufen, dorthin passen.</dd></div>
+          </div>
+          <div class="term">
+            <svg viewBox="0 0 22 22" aria-hidden="true"><path class="g-shadow" d="M9.5 9.2 20 3v16L9.5 12.8Z"/><circle class="g-dot" cx="2.5" cy="11" r="2"/><circle class="g-def" cx="9.5" cy="11" r="2.2"/></svg>
+            <div><dt>Deckungsschatten</dt><dd>Der Bereich hinter einem Verteidiger, vom Ball aus gesehen. Ein Pass dorthin geht durch ihn hindurch: Wer im Schatten steht, ist nicht anspielbar.</dd></div>
+          </div>
+          <div class="term lineup-only">
+            <svg viewBox="0 0 22 22" aria-hidden="true"><path class="g-thin" d="M2 15 20 11 11 13.5Z"/><circle class="g-dot" cx="2" cy="15" r="2"/><circle class="g-dot" cx="20" cy="11" r="2"/><circle class="g-dot" cx="11" cy="13.5" r="2"/></svg>
+            <div><dt>Spitzes Dreieck</dt><dd>Der kleinste Winkel liegt unter 20°. Drei Spieler stehen fast auf einer Linie, und ein Gegner kann zwei Passwege auf einmal zustellen.</dd></div>
+          </div>
+        </dl>
+        <p class="note">Gemessen wird die Luftlinie. Tempo, Laufrichtung und Körperstellung fließen nicht ein.</p>
+        <p class="source">Grundlage: „Das Training mit geometrischen Formen – vornehmlich in Spielformen!“ von Stephan Kerber, Hamburger Fußball-Verband.</p>
+      </section>
+
+      <section class="group" aria-labelledby="h-scenes">
+        <h2 class="eyebrow" id="h-scenes">Situationen</h2>
+        <form class="field-row" id="scene-form">
+          <input class="text-in" id="scene-name" placeholder="Name, z. B. Pressing hoch" maxlength="40" autocomplete="off" aria-label="Name der Situation">
+          <button type="submit" class="btn">Speichern</button>
+        </form>
+        <ul class="scenes" id="scene-list"></ul>
+        <p class="sub" id="scene-msg" role="status"></p>
+      </section>
+
+      <section class="group" aria-labelledby="h-share">
+        <h2 class="eyebrow" id="h-share">Teilen</h2>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btn-share">Situation teilen</button>
+          <button type="button" class="btn" id="btn-png">Als Bild speichern</button>
+        </div>
+        <input class="text-in" id="share-out" readonly hidden aria-label="Link oder Code zur Situation">
+        <p class="sub" id="share-msg" role="status"></p>
+        <form class="share-load" id="share-form">
+          <label for="share-in">Geteilte Situation laden</label>
+          <div class="field-row">
+            <input class="text-in" id="share-in" placeholder="Link oder Code einfügen" autocomplete="off" spellcheck="false">
+            <button type="submit" class="btn">Laden</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="group lineup-only" aria-labelledby="h-extra">
+        <h2 class="eyebrow" id="h-extra">Weitere Einstellungen</h2>
+        <label class="check" for="show-circles"><input type="checkbox" id="show-circles"> Umkreise und Voronoi-Ecken</label>
+        <label class="check" for="show-thin"><input type="checkbox" id="show-thin"> Spitze Dreiecke markieren (unter 20°)</label>
+        <div class="btn-row"><button type="button" class="btn" id="btn-grow">Kreise wachsen lassen</button></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script>
+// https://github.com/d3/d3-delaunay v6.0.4 Copyright 2018-2021 Observable, Inc., 2021 Mapbox
+!function(t,i){"object"==typeof exports&&"undefined"!=typeof module?i(exports):"function"==typeof define&&define.amd?define(["exports"],i):i((t="undefined"!=typeof globalThis?globalThis:t||self).d3=t.d3||{})}(this,(function(t){"use strict";const i=134217729;function e(t,i,e,n,s){let l,h,r,o,a=i[0],c=n[0],u=0,f=0;c>a==c>-a?(l=a,a=i[++u]):(l=c,c=n[++f]);let _=0;if(u<t&&f<e)for(c>a==c>-a?(h=a+l,r=l-(h-a),a=i[++u]):(h=c+l,r=l-(h-c),c=n[++f]),l=h,0!==r&&(s[_++]=r);u<t&&f<e;)c>a==c>-a?(h=l+a,o=h-l,r=l-(h-o)+(a-o),a=i[++u]):(h=l+c,o=h-l,r=l-(h-o)+(c-o),c=n[++f]),l=h,0!==r&&(s[_++]=r);for(;u<t;)h=l+a,o=h-l,r=l-(h-o)+(a-o),a=i[++u],l=h,0!==r&&(s[_++]=r);for(;f<e;)h=l+c,o=h-l,r=l-(h-o)+(c-o),c=n[++f],l=h,0!==r&&(s[_++]=r);return 0===l&&0!==_||(s[_++]=l),_}function n(t){return new Float64Array(t)}const s=n(4),l=n(8),h=n(12),r=n(16),o=n(4);function a(t,n,a,c,u,f){const _=(n-f)*(a-u),d=(t-u)*(c-f),g=_-d;if(0===_||0===d||_>0!=d>0)return g;const y=Math.abs(_+d);return Math.abs(g)>=33306690738754716e-32*y?g:-function(t,n,a,c,u,f,_){let d,g,y,m,x,p,w,v,b,T,M,A,k,$,P,S,I,z;const F=t-u,U=a-u,K=n-f,L=c-f;$=F*L,p=i*F,w=p-(p-F),v=F-w,p=i*L,b=p-(p-L),T=L-b,P=v*T-($-w*b-v*b-w*T),S=K*U,p=i*K,w=p-(p-K),v=K-w,p=i*U,b=p-(p-U),T=U-b,I=v*T-(S-w*b-v*b-w*T),M=P-I,x=P-M,s[0]=P-(M+x)+(x-I),A=$+M,x=A-$,k=$-(A-x)+(M-x),M=k-S,x=k-M,s[1]=k-(M+x)+(x-S),z=A+M,x=z-A,s[2]=A-(z-x)+(M-x),s[3]=z;let j=function(t,i){let e=i[0];for(let n=1;n<t;n++)e+=i[n];return e}(4,s),H=22204460492503146e-32*_;if(j>=H||-j>=H)return j;if(x=t-F,d=t-(F+x)+(x-u),x=a-U,y=a-(U+x)+(x-u),x=n-K,g=n-(K+x)+(x-f),x=c-L,m=c-(L+x)+(x-f),0===d&&0===g&&0===y&&0===m)return j;if(H=11093356479670487e-47*_+33306690738754706e-32*Math.abs(j),j+=F*m+L*d-(K*y+U*g),j>=H||-j>=H)return j;$=d*L,p=i*d,w=p-(p-d),v=d-w,p=i*L,b=p-(p-L),T=L-b,P=v*T-($-w*b-v*b-w*T),S=g*U,p=i*g,w=p-(p-g),v=g-w,p=i*U,b=p-(p-U),T=U-b,I=v*T-(S-w*b-v*b-w*T),M=P-I,x=P-M,o[0]=P-(M+x)+(x-I),A=$+M,x=A-$,k=$-(A-x)+(M-x),M=k-S,x=k-M,o[1]=k-(M+x)+(x-S),z=A+M,x=z-A,o[2]=A-(z-x)+(M-x),o[3]=z;const E=e(4,s,4,o,l);$=F*m,p=i*F,w=p-(p-F),v=F-w,p=i*m,b=p-(p-m),T=m-b,P=v*T-($-w*b-v*b-w*T),S=K*y,p=i*K,w=p-(p-K),v=K-w,p=i*y,b=p-(p-y),T=y-b,I=v*T-(S-w*b-v*b-w*T),M=P-I,x=P-M,o[0]=P-(M+x)+(x-I),A=$+M,x=A-$,k=$-(A-x)+(M-x),M=k-S,x=k-M,o[1]=k-(M+x)+(x-S),z=A+M,x=z-A,o[2]=A-(z-x)+(M-x),o[3]=z;const C=e(E,l,4,o,h);$=d*m,p=i*d,w=p-(p-d),v=d-w,p=i*m,b=p-(p-m),T=m-b,P=v*T-($-w*b-v*b-w*T),S=g*y,p=i*g,w=p-(p-g),v=g-w,p=i*y,b=p-(p-y),T=y-b,I=v*T-(S-w*b-v*b-w*T),M=P-I,x=P-M,o[0]=P-(M+x)+(x-I),A=$+M,x=A-$,k=$-(A-x)+(M-x),M=k-S,x=k-M,o[1]=k-(M+x)+(x-S),z=A+M,x=z-A,o[2]=A-(z-x)+(M-x),o[3]=z;const N=e(C,h,4,o,r);return r[N-1]}(t,n,a,c,u,f,y)}const c=Math.pow(2,-52),u=new Uint32Array(512);class f{static from(t,i=x,e=p){const n=t.length,s=new Float64Array(2*n);for(let l=0;l<n;l++){const n=t[l];s[2*l]=i(n),s[2*l+1]=e(n)}return new f(s)}constructor(t){const i=t.length>>1;if(i>0&&"number"!=typeof t[0])throw new Error("Expected coords to contain numbers.");this.coords=t;const e=Math.max(2*i-5,0);this._triangles=new Uint32Array(3*e),this._halfedges=new Int32Array(3*e),this._hashSize=Math.ceil(Math.sqrt(i)),this._hullPrev=new Uint32Array(i),this._hullNext=new Uint32Array(i),this._hullTri=new Uint32Array(i),this._hullHash=new Int32Array(this._hashSize).fill(-1),this._ids=new Uint32Array(i),this._dists=new Float64Array(i),this.update()}update(){const{coords:t,_hullPrev:i,_hullNext:e,_hullTri:n,_hullHash:s}=this,l=t.length>>1;let h=1/0,r=1/0,o=-1/0,u=-1/0;for(let i=0;i<l;i++){const e=t[2*i],n=t[2*i+1];e<h&&(h=e),n<r&&(r=n),e>o&&(o=e),n>u&&(u=n),this._ids[i]=i}const f=(h+o)/2,d=(r+u)/2;let m,x,p,w=1/0;for(let i=0;i<l;i++){const e=_(f,d,t[2*i],t[2*i+1]);e<w&&(m=i,w=e)}const v=t[2*m],b=t[2*m+1];w=1/0;for(let i=0;i<l;i++){if(i===m)continue;const e=_(v,b,t[2*i],t[2*i+1]);e<w&&e>0&&(x=i,w=e)}let T=t[2*x],M=t[2*x+1],A=1/0;for(let i=0;i<l;i++){if(i===m||i===x)continue;const e=g(v,b,T,M,t[2*i],t[2*i+1]);e<A&&(p=i,A=e)}let k=t[2*p],$=t[2*p+1];if(A===1/0){for(let i=0;i<l;i++)this._dists[i]=t[2*i]-t[0]||t[2*i+1]-t[1];y(this._ids,this._dists,0,l-1);const i=new Uint32Array(l);let e=0;for(let t=0,n=-1/0;t<l;t++){const s=this._ids[t];this._dists[s]>n&&(i[e++]=s,n=this._dists[s])}return this.hull=i.subarray(0,e),this.triangles=new Uint32Array(0),void(this.halfedges=new Uint32Array(0))}if(a(v,b,T,M,k,$)<0){const t=x,i=T,e=M;x=p,T=k,M=$,p=t,k=i,$=e}const P=function(t,i,e,n,s,l){const h=e-t,r=n-i,o=s-t,a=l-i,c=h*h+r*r,u=o*o+a*a,f=.5/(h*a-r*o);return{x:t+(a*c-r*u)*f,y:i+(h*u-o*c)*f}}(v,b,T,M,k,$);this._cx=P.x,this._cy=P.y;for(let i=0;i<l;i++)this._dists[i]=_(t[2*i],t[2*i+1],P.x,P.y);y(this._ids,this._dists,0,l-1),this._hullStart=m;let S=3;e[m]=i[p]=x,e[x]=i[m]=p,e[p]=i[x]=m,n[m]=0,n[x]=1,n[p]=2,s.fill(-1),s[this._hashKey(v,b)]=m,s[this._hashKey(T,M)]=x,s[this._hashKey(k,$)]=p,this.trianglesLen=0,this._addTriangle(m,x,p,-1,-1,-1);for(let l,h,r=0;r<this._ids.length;r++){const o=this._ids[r],u=t[2*o],f=t[2*o+1];if(r>0&&Math.abs(u-l)<=c&&Math.abs(f-h)<=c)continue;if(l=u,h=f,o===m||o===x||o===p)continue;let _=0;for(let t=0,i=this._hashKey(u,f);t<this._hashSize&&(_=s[(i+t)%this._hashSize],-1===_||_===e[_]);t++);_=i[_];let d,g=_;for(;d=e[g],a(u,f,t[2*g],t[2*g+1],t[2*d],t[2*d+1])>=0;)if(g=d,g===_){g=-1;break}if(-1===g)continue;let y=this._addTriangle(g,o,e[g],-1,-1,n[g]);n[o]=this._legalize(y+2),n[g]=y,S++;let w=e[g];for(;d=e[w],a(u,f,t[2*w],t[2*w+1],t[2*d],t[2*d+1])<0;)y=this._addTriangle(w,o,d,n[o],-1,n[w]),n[o]=this._legalize(y+2),e[w]=w,S--,w=d;if(g===_)for(;d=i[g],a(u,f,t[2*d],t[2*d+1],t[2*g],t[2*g+1])<0;)y=this._addTriangle(d,o,g,-1,n[g],n[d]),this._legalize(y+2),n[d]=y,e[g]=g,S--,g=d;this._hullStart=i[o]=g,e[g]=i[w]=o,e[o]=w,s[this._hashKey(u,f)]=o,s[this._hashKey(t[2*g],t[2*g+1])]=g}this.hull=new Uint32Array(S);for(let t=0,i=this._hullStart;t<S;t++)this.hull[t]=i,i=e[i];this.triangles=this._triangles.subarray(0,this.trianglesLen),this.halfedges=this._halfedges.subarray(0,this.trianglesLen)}_hashKey(t,i){return Math.floor(function(t,i){const e=t/(Math.abs(t)+Math.abs(i));return(i>0?3-e:1+e)/4}(t-this._cx,i-this._cy)*this._hashSize)%this._hashSize}_legalize(t){const{_triangles:i,_halfedges:e,coords:n}=this;let s=0,l=0;for(;;){const h=e[t],r=t-t%3;if(l=r+(t+2)%3,-1===h){if(0===s)break;t=u[--s];continue}const o=h-h%3,a=r+(t+1)%3,c=o+(h+2)%3,f=i[l],_=i[t],g=i[a],y=i[c];if(d(n[2*f],n[2*f+1],n[2*_],n[2*_+1],n[2*g],n[2*g+1],n[2*y],n[2*y+1])){i[t]=y,i[h]=f;const n=e[c];if(-1===n){let i=this._hullStart;do{if(this._hullTri[i]===c){this._hullTri[i]=t;break}i=this._hullPrev[i]}while(i!==this._hullStart)}this._link(t,n),this._link(h,e[l]),this._link(l,c);const r=o+(h+1)%3;s<u.length&&(u[s++]=r)}else{if(0===s)break;t=u[--s]}}return l}_link(t,i){this._halfedges[t]=i,-1!==i&&(this._halfedges[i]=t)}_addTriangle(t,i,e,n,s,l){const h=this.trianglesLen;return this._triangles[h]=t,this._triangles[h+1]=i,this._triangles[h+2]=e,this._link(h,n),this._link(h+1,s),this._link(h+2,l),this.trianglesLen+=3,h}}function _(t,i,e,n){const s=t-e,l=i-n;return s*s+l*l}function d(t,i,e,n,s,l,h,r){const o=t-h,a=i-r,c=e-h,u=n-r,f=s-h,_=l-r,d=c*c+u*u,g=f*f+_*_;return o*(u*g-d*_)-a*(c*g-d*f)+(o*o+a*a)*(c*_-u*f)<0}function g(t,i,e,n,s,l){const h=e-t,r=n-i,o=s-t,a=l-i,c=h*h+r*r,u=o*o+a*a,f=.5/(h*a-r*o),_=(a*c-r*u)*f,d=(h*u-o*c)*f;return _*_+d*d}function y(t,i,e,n){if(n-e<=20)for(let s=e+1;s<=n;s++){const n=t[s],l=i[n];let h=s-1;for(;h>=e&&i[t[h]]>l;)t[h+1]=t[h--];t[h+1]=n}else{let s=e+1,l=n;m(t,e+n>>1,s),i[t[e]]>i[t[n]]&&m(t,e,n),i[t[s]]>i[t[n]]&&m(t,s,n),i[t[e]]>i[t[s]]&&m(t,e,s);const h=t[s],r=i[h];for(;;){do{s++}while(i[t[s]]<r);do{l--}while(i[t[l]]>r);if(l<s)break;m(t,s,l)}t[e+1]=t[l],t[l]=h,n-s+1>=l-e?(y(t,i,s,n),y(t,i,e,l-1)):(y(t,i,e,l-1),y(t,i,s,n))}}function m(t,i,e){const n=t[i];t[i]=t[e],t[e]=n}function x(t){return t[0]}function p(t){return t[1]}const w=1e-6;class v{constructor(){this._x0=this._y0=this._x1=this._y1=null,this._=""}moveTo(t,i){this._+=`M${this._x0=this._x1=+t},${this._y0=this._y1=+i}`}closePath(){null!==this._x1&&(this._x1=this._x0,this._y1=this._y0,this._+="Z")}lineTo(t,i){this._+=`L${this._x1=+t},${this._y1=+i}`}arc(t,i,e){const n=(t=+t)+(e=+e),s=i=+i;if(e<0)throw new Error("negative radius");null===this._x1?this._+=`M${n},${s}`:(Math.abs(this._x1-n)>w||Math.abs(this._y1-s)>w)&&(this._+="L"+n+","+s),e&&(this._+=`A${e},${e},0,1,1,${t-e},${i}A${e},${e},0,1,1,${this._x1=n},${this._y1=s}`)}rect(t,i,e,n){this._+=`M${this._x0=this._x1=+t},${this._y0=this._y1=+i}h${+e}v${+n}h${-e}Z`}value(){return this._||null}}class b{constructor(){this._=[]}moveTo(t,i){this._.push([t,i])}closePath(){this._.push(this._[0].slice())}lineTo(t,i){this._.push([t,i])}value(){return this._.length?this._:null}}class T{constructor(t,[i,e,n,s]=[0,0,960,500]){if(!((n=+n)>=(i=+i)&&(s=+s)>=(e=+e)))throw new Error("invalid bounds");this.delaunay=t,this._circumcenters=new Float64Array(2*t.points.length),this.vectors=new Float64Array(2*t.points.length),this.xmax=n,this.xmin=i,this.ymax=s,this.ymin=e,this._init()}update(){return this.delaunay.update(),this._init(),this}_init(){const{delaunay:{points:t,hull:i,triangles:e},vectors:n}=this;let s,l;const h=this.circumcenters=this._circumcenters.subarray(0,e.length/3*2);for(let n,r,o=0,a=0,c=e.length;o<c;o+=3,a+=2){const c=2*e[o],u=2*e[o+1],f=2*e[o+2],_=t[c],d=t[c+1],g=t[u],y=t[u+1],m=t[f],x=t[f+1],p=g-_,w=y-d,v=m-_,b=x-d,T=2*(p*b-w*v);if(Math.abs(T)<1e-9){if(void 0===s){s=l=0;for(const e of i)s+=t[2*e],l+=t[2*e+1];s/=i.length,l/=i.length}const e=1e9*Math.sign((s-_)*b-(l-d)*v);n=(_+m)/2-e*b,r=(d+x)/2+e*v}else{const t=1/T,i=p*p+w*w,e=v*v+b*b;n=_+(b*i-w*e)*t,r=d+(p*e-v*i)*t}h[a]=n,h[a+1]=r}let r,o,a,c=i[i.length-1],u=4*c,f=t[2*c],_=t[2*c+1];n.fill(0);for(let e=0;e<i.length;++e)c=i[e],r=u,o=f,a=_,u=4*c,f=t[2*c],_=t[2*c+1],n[r+2]=n[u]=a-_,n[r+3]=n[u+1]=f-o}render(t){const i=null==t?t=new v:void 0,{delaunay:{halfedges:e,inedges:n,hull:s},circumcenters:l,vectors:h}=this;if(s.length<=1)return null;for(let i=0,n=e.length;i<n;++i){const n=e[i];if(n<i)continue;const s=2*Math.floor(i/3),h=2*Math.floor(n/3),r=l[s],o=l[s+1],a=l[h],c=l[h+1];this._renderSegment(r,o,a,c,t)}let r,o=s[s.length-1];for(let i=0;i<s.length;++i){r=o,o=s[i];const e=2*Math.floor(n[o]/3),a=l[e],c=l[e+1],u=4*r,f=this._project(a,c,h[u+2],h[u+3]);f&&this._renderSegment(a,c,f[0],f[1],t)}return i&&i.value()}renderBounds(t){const i=null==t?t=new v:void 0;return t.rect(this.xmin,this.ymin,this.xmax-this.xmin,this.ymax-this.ymin),i&&i.value()}renderCell(t,i){const e=null==i?i=new v:void 0,n=this._clip(t);if(null===n||!n.length)return;i.moveTo(n[0],n[1]);let s=n.length;for(;n[0]===n[s-2]&&n[1]===n[s-1]&&s>1;)s-=2;for(let t=2;t<s;t+=2)n[t]===n[t-2]&&n[t+1]===n[t-1]||i.lineTo(n[t],n[t+1]);return i.closePath(),e&&e.value()}*cellPolygons(){const{delaunay:{points:t}}=this;for(let i=0,e=t.length/2;i<e;++i){const t=this.cellPolygon(i);t&&(t.index=i,yield t)}}cellPolygon(t){const i=new b;return this.renderCell(t,i),i.value()}_renderSegment(t,i,e,n,s){let l;const h=this._regioncode(t,i),r=this._regioncode(e,n);0===h&&0===r?(s.moveTo(t,i),s.lineTo(e,n)):(l=this._clipSegment(t,i,e,n,h,r))&&(s.moveTo(l[0],l[1]),s.lineTo(l[2],l[3]))}contains(t,i,e){return(i=+i)==i&&(e=+e)==e&&this.delaunay._step(t,i,e)===t}*neighbors(t){const i=this._clip(t);if(i)for(const e of this.delaunay.neighbors(t)){const t=this._clip(e);if(t)t:for(let n=0,s=i.length;n<s;n+=2)for(let l=0,h=t.length;l<h;l+=2)if(i[n]===t[l]&&i[n+1]===t[l+1]&&i[(n+2)%s]===t[(l+h-2)%h]&&i[(n+3)%s]===t[(l+h-1)%h]){yield e;break t}}}_cell(t){const{circumcenters:i,delaunay:{inedges:e,halfedges:n,triangles:s}}=this,l=e[t];if(-1===l)return null;const h=[];let r=l;do{const e=Math.floor(r/3);if(h.push(i[2*e],i[2*e+1]),r=r%3==2?r-2:r+1,s[r]!==t)break;r=n[r]}while(r!==l&&-1!==r);return h}_clip(t){if(0===t&&1===this.delaunay.hull.length)return[this.xmax,this.ymin,this.xmax,this.ymax,this.xmin,this.ymax,this.xmin,this.ymin];const i=this._cell(t);if(null===i)return null;const{vectors:e}=this,n=4*t;return this._simplify(e[n]||e[n+1]?this._clipInfinite(t,i,e[n],e[n+1],e[n+2],e[n+3]):this._clipFinite(t,i))}_clipFinite(t,i){const e=i.length;let n,s,l,h,r=null,o=i[e-2],a=i[e-1],c=this._regioncode(o,a),u=0;for(let f=0;f<e;f+=2)if(n=o,s=a,o=i[f],a=i[f+1],l=c,c=this._regioncode(o,a),0===l&&0===c)h=u,u=0,r?r.push(o,a):r=[o,a];else{let i,e,f,_,d;if(0===l){if(null===(i=this._clipSegment(n,s,o,a,l,c)))continue;[e,f,_,d]=i}else{if(null===(i=this._clipSegment(o,a,n,s,c,l)))continue;[_,d,e,f]=i,h=u,u=this._edgecode(e,f),h&&u&&this._edge(t,h,u,r,r.length),r?r.push(e,f):r=[e,f]}h=u,u=this._edgecode(_,d),h&&u&&this._edge(t,h,u,r,r.length),r?r.push(_,d):r=[_,d]}if(r)h=u,u=this._edgecode(r[0],r[1]),h&&u&&this._edge(t,h,u,r,r.length);else if(this.contains(t,(this.xmin+this.xmax)/2,(this.ymin+this.ymax)/2))return[this.xmax,this.ymin,this.xmax,this.ymax,this.xmin,this.ymax,this.xmin,this.ymin];return r}_clipSegment(t,i,e,n,s,l){const h=s<l;for(h&&([t,i,e,n,s,l]=[e,n,t,i,l,s]);;){if(0===s&&0===l)return h?[e,n,t,i]:[t,i,e,n];if(s&l)return null;let r,o,a=s||l;8&a?(r=t+(e-t)*(this.ymax-i)/(n-i),o=this.ymax):4&a?(r=t+(e-t)*(this.ymin-i)/(n-i),o=this.ymin):2&a?(o=i+(n-i)*(this.xmax-t)/(e-t),r=this.xmax):(o=i+(n-i)*(this.xmin-t)/(e-t),r=this.xmin),s?(t=r,i=o,s=this._regioncode(t,i)):(e=r,n=o,l=this._regioncode(e,n))}}_clipInfinite(t,i,e,n,s,l){let h,r=Array.from(i);if((h=this._project(r[0],r[1],e,n))&&r.unshift(h[0],h[1]),(h=this._project(r[r.length-2],r[r.length-1],s,l))&&r.push(h[0],h[1]),r=this._clipFinite(t,r))for(let i,e=0,n=r.length,s=this._edgecode(r[n-2],r[n-1]);e<n;e+=2)i=s,s=this._edgecode(r[e],r[e+1]),i&&s&&(e=this._edge(t,i,s,r,e),n=r.length);else this.contains(t,(this.xmin+this.xmax)/2,(this.ymin+this.ymax)/2)&&(r=[this.xmin,this.ymin,this.xmax,this.ymin,this.xmax,this.ymax,this.xmin,this.ymax]);return r}_edge(t,i,e,n,s){for(;i!==e;){let e,l;switch(i){case 5:i=4;continue;case 4:i=6,e=this.xmax,l=this.ymin;break;case 6:i=2;continue;case 2:i=10,e=this.xmax,l=this.ymax;break;case 10:i=8;continue;case 8:i=9,e=this.xmin,l=this.ymax;break;case 9:i=1;continue;case 1:i=5,e=this.xmin,l=this.ymin}n[s]===e&&n[s+1]===l||!this.contains(t,e,l)||(n.splice(s,0,e,l),s+=2)}return s}_project(t,i,e,n){let s,l,h,r=1/0;if(n<0){if(i<=this.ymin)return null;(s=(this.ymin-i)/n)<r&&(h=this.ymin,l=t+(r=s)*e)}else if(n>0){if(i>=this.ymax)return null;(s=(this.ymax-i)/n)<r&&(h=this.ymax,l=t+(r=s)*e)}if(e>0){if(t>=this.xmax)return null;(s=(this.xmax-t)/e)<r&&(l=this.xmax,h=i+(r=s)*n)}else if(e<0){if(t<=this.xmin)return null;(s=(this.xmin-t)/e)<r&&(l=this.xmin,h=i+(r=s)*n)}return[l,h]}_edgecode(t,i){return(t===this.xmin?1:t===this.xmax?2:0)|(i===this.ymin?4:i===this.ymax?8:0)}_regioncode(t,i){return(t<this.xmin?1:t>this.xmax?2:0)|(i<this.ymin?4:i>this.ymax?8:0)}_simplify(t){if(t&&t.length>4){for(let i=0;i<t.length;i+=2){const e=(i+2)%t.length,n=(i+4)%t.length;(t[i]===t[e]&&t[e]===t[n]||t[i+1]===t[e+1]&&t[e+1]===t[n+1])&&(t.splice(e,2),i-=2)}t.length||(t=null)}return t}}const M=2*Math.PI,A=Math.pow;function k(t){return t[0]}function $(t){return t[1]}function P(t,i,e){return[t+Math.sin(t+i)*e,i+Math.cos(t-i)*e]}class S{static from(t,i=k,e=$,n){return new S("length"in t?function(t,i,e,n){const s=t.length,l=new Float64Array(2*s);for(let h=0;h<s;++h){const s=t[h];l[2*h]=i.call(n,s,h,t),l[2*h+1]=e.call(n,s,h,t)}return l}(t,i,e,n):Float64Array.from(function*(t,i,e,n){let s=0;for(const l of t)yield i.call(n,l,s,t),yield e.call(n,l,s,t),++s}(t,i,e,n)))}constructor(t){this._delaunator=new f(t),this.inedges=new Int32Array(t.length/2),this._hullIndex=new Int32Array(t.length/2),this.points=this._delaunator.coords,this._init()}update(){return this._delaunator.update(),this._init(),this}_init(){const t=this._delaunator,i=this.points;if(t.hull&&t.hull.length>2&&function(t){const{triangles:i,coords:e}=t;for(let t=0;t<i.length;t+=3){const n=2*i[t],s=2*i[t+1],l=2*i[t+2];if((e[l]-e[n])*(e[s+1]-e[n+1])-(e[s]-e[n])*(e[l+1]-e[n+1])>1e-10)return!1}return!0}(t)){this.collinear=Int32Array.from({length:i.length/2},((t,i)=>i)).sort(((t,e)=>i[2*t]-i[2*e]||i[2*t+1]-i[2*e+1]));const t=this.collinear[0],e=this.collinear[this.collinear.length-1],n=[i[2*t],i[2*t+1],i[2*e],i[2*e+1]],s=1e-8*Math.hypot(n[3]-n[1],n[2]-n[0]);for(let t=0,e=i.length/2;t<e;++t){const e=P(i[2*t],i[2*t+1],s);i[2*t]=e[0],i[2*t+1]=e[1]}this._delaunator=new f(i)}else delete this.collinear;const e=this.halfedges=this._delaunator.halfedges,n=this.hull=this._delaunator.hull,s=this.triangles=this._delaunator.triangles,l=this.inedges.fill(-1),h=this._hullIndex.fill(-1);for(let t=0,i=e.length;t<i;++t){const i=s[t%3==2?t-2:t+1];-1!==e[t]&&-1!==l[i]||(l[i]=t)}for(let t=0,i=n.length;t<i;++t)h[n[t]]=t;n.length<=2&&n.length>0&&(this.triangles=new Int32Array(3).fill(-1),this.halfedges=new Int32Array(3).fill(-1),this.triangles[0]=n[0],l[n[0]]=1,2===n.length&&(l[n[1]]=0,this.triangles[1]=n[1],this.triangles[2]=n[1]))}voronoi(t){return new T(this,t)}*neighbors(t){const{inedges:i,hull:e,_hullIndex:n,halfedges:s,triangles:l,collinear:h}=this;if(h){const i=h.indexOf(t);return i>0&&(yield h[i-1]),void(i<h.length-1&&(yield h[i+1]))}const r=i[t];if(-1===r)return;let o=r,a=-1;do{if(yield a=l[o],o=o%3==2?o-2:o+1,l[o]!==t)return;if(o=s[o],-1===o){const i=e[(n[t]+1)%e.length];return void(i!==a&&(yield i))}}while(o!==r)}find(t,i,e=0){if((t=+t)!=t||(i=+i)!=i)return-1;const n=e;let s;for(;(s=this._step(e,t,i))>=0&&s!==e&&s!==n;)e=s;return s}_step(t,i,e){const{inedges:n,hull:s,_hullIndex:l,halfedges:h,triangles:r,points:o}=this;if(-1===n[t]||!o.length)return(t+1)%(o.length>>1);let a=t,c=A(i-o[2*t],2)+A(e-o[2*t+1],2);const u=n[t];let f=u;do{let n=r[f];const u=A(i-o[2*n],2)+A(e-o[2*n+1],2);if(u<c&&(c=u,a=n),f=f%3==2?f-2:f+1,r[f]!==t)break;if(f=h[f],-1===f){if(f=s[(l[t]+1)%s.length],f!==n&&A(i-o[2*f],2)+A(e-o[2*f+1],2)<c)return f;break}}while(f!==u);return a}render(t){const i=null==t?t=new v:void 0,{points:e,halfedges:n,triangles:s}=this;for(let i=0,l=n.length;i<l;++i){const l=n[i];if(l<i)continue;const h=2*s[i],r=2*s[l];t.moveTo(e[h],e[h+1]),t.lineTo(e[r],e[r+1])}return this.renderHull(t),i&&i.value()}renderPoints(t,i){void 0!==i||t&&"function"==typeof t.moveTo||(i=t,t=null),i=null==i?2:+i;const e=null==t?t=new v:void 0,{points:n}=this;for(let e=0,s=n.length;e<s;e+=2){const s=n[e],l=n[e+1];t.moveTo(s+i,l),t.arc(s,l,i,0,M)}return e&&e.value()}renderHull(t){const i=null==t?t=new v:void 0,{hull:e,points:n}=this,s=2*e[0],l=e.length;t.moveTo(n[s],n[s+1]);for(let i=1;i<l;++i){const s=2*e[i];t.lineTo(n[s],n[s+1])}return t.closePath(),i&&i.value()}hullPolygon(){const t=new b;return this.renderHull(t),t.value()}renderTriangle(t,i){const e=null==i?i=new v:void 0,{points:n,triangles:s}=this,l=2*s[t*=3],h=2*s[t+1],r=2*s[t+2];return i.moveTo(n[l],n[l+1]),i.lineTo(n[h],n[h+1]),i.lineTo(n[r],n[r+1]),i.closePath(),e&&e.value()}*trianglePolygons(){const{triangles:t}=this;for(let i=0,e=t.length/3;i<e;++i)yield this.trianglePolygon(i)}trianglePolygon(t){const i=new b;return this.renderTriangle(t,i),i.value()}}t.Delaunay=S,t.Voronoi=T,Object.defineProperty(t,"__esModule",{value:!0})}));
+</script>
+<script>
+(() => {
+  "use strict";
+
+  // Spielfeld in Metern. Heim spielt von links nach rechts.
+  const W = 105, H = 68, HALF = W / 2, BOUNDS = [0, 0, W, H];
+  const THIN = 20;
+  const KEY = "voronoi-taktiktafel-v1";
+
+  // Formationen: [Position, Tiefe (0 = Abwehrlinie, 1 = Sturmspitze), Breite (0 = linke, 1 = rechte Seitenlinie)]
+  const BACK4 = [["LV", .05, .1], ["LIV", 0, .36], ["RIV", 0, .64], ["RV", .05, .9]];
+  const BACK3 = [["LIV", 0, .25], ["ZIV", -.03, .5], ["RIV", 0, .75]];
+  const BACK5 = [["LWB", .08, .07], ["LIV", 0, .29], ["ZIV", -.03, .5], ["RIV", 0, .71], ["RWB", .08, .93]];
+  const FORMATIONS = {
+    "4-4-2": [...BACK4, ["LM", .5, .12], ["LZM", .45, .38], ["RZM", .45, .62], ["RM", .5, .88], ["ST", 1, .4], ["ST", 1, .6]],
+    "4-4-2 Raute": [...BACK4, ["DM", .25, .5], ["LM", .47, .2], ["RM", .47, .8], ["OM", .7, .5], ["ST", 1, .4], ["ST", 1, .6]],
+    "4-3-3": [...BACK4, ["DM", .27, .5], ["LZM", .5, .3], ["RZM", .5, .7], ["LA", .9, .12], ["MS", 1, .5], ["RA", .9, .88]],
+    "4-2-3-1": [...BACK4, ["DM", .28, .38], ["DM", .28, .62], ["LA", .7, .13], ["OM", .68, .5], ["RA", .7, .87], ["MS", 1, .5]],
+    "4-1-4-1": [...BACK4, ["DM", .25, .5], ["LM", .56, .12], ["LZM", .53, .36], ["RZM", .53, .64], ["RM", .56, .88], ["MS", 1, .5]],
+    "4-5-1": [...BACK4, ["LM", .48, .1], ["LZM", .45, .3], ["ZM", .4, .5], ["RZM", .45, .7], ["RM", .48, .9], ["MS", 1, .5]],
+    "4-3-2-1": [...BACK4, ["LZM", .35, .24], ["ZM", .3, .5], ["RZM", .35, .76], ["LOM", .72, .36], ["ROM", .72, .64], ["MS", 1, .5]],
+    "4-1-2-1-2": [...BACK4, ["DM", .23, .5], ["LZM", .45, .32], ["RZM", .45, .68], ["OM", .68, .5], ["ST", 1, .42], ["ST", 1, .58]],
+    "4-2-2-2": [...BACK4, ["DM", .28, .38], ["DM", .28, .62], ["LOM", .64, .2], ["ROM", .64, .8], ["ST", 1, .4], ["ST", 1, .6]],
+    "4-3-1-2": [...BACK4, ["LZM", .38, .26], ["ZM", .32, .5], ["RZM", .38, .74], ["OM", .68, .5], ["ST", 1, .4], ["ST", 1, .6]],
+    "4-2-4": [...BACK4, ["LZM", .38, .38], ["RZM", .38, .62], ["LA", .93, .1], ["ST", 1, .38], ["ST", 1, .62], ["RA", .93, .9]],
+    "4-6-0": [...BACK4, ["DM", .25, .5], ["LZM", .45, .32], ["RZM", .45, .68], ["LA", .76, .13], ["F9", .82, .5], ["RA", .76, .87]],
+    "3-5-2": [...BACK3, ["LWB", .48, .07], ["DM", .3, .5], ["LZM", .52, .33], ["RZM", .52, .67], ["RWB", .48, .93], ["ST", 1, .4], ["ST", 1, .6]],
+    "3-4-3": [...BACK3, ["LWB", .47, .08], ["LZM", .42, .38], ["RZM", .42, .62], ["RWB", .47, .92], ["LA", .9, .17], ["MS", 1, .5], ["RA", .9, .83]],
+    "3-4-2-1": [...BACK3, ["LWB", .47, .08], ["LZM", .4, .38], ["RZM", .4, .62], ["RWB", .47, .92], ["LOM", .73, .34], ["ROM", .73, .66], ["MS", 1, .5]],
+    "3-4-1-2": [...BACK3, ["LWB", .47, .08], ["LZM", .4, .38], ["RZM", .4, .62], ["RWB", .47, .92], ["OM", .68, .5], ["ST", 1, .4], ["ST", 1, .6]],
+    "3-1-4-2": [...BACK3, ["DM", .24, .5], ["LWB", .52, .08], ["LZM", .52, .36], ["RZM", .52, .64], ["RWB", .52, .92], ["ST", 1, .4], ["ST", 1, .6]],
+    "3-2-3-2": [...BACK3, ["DM", .28, .38], ["DM", .28, .62], ["LM", .6, .09], ["OM", .64, .5], ["RM", .6, .91], ["ST", 1, .38], ["ST", 1, .62]],
+    "5-3-2": [...BACK5, ["LZM", .4, .27], ["ZM", .35, .5], ["RZM", .4, .73], ["ST", 1, .4], ["ST", 1, .6]],
+    "5-4-1": [...BACK5, ["LM", .47, .14], ["LZM", .43, .38], ["RZM", .43, .62], ["RM", .47, .86], ["MS", 1, .5]],
+    "5-2-3": [...BACK5, ["LZM", .38, .38], ["RZM", .38, .62], ["LA", .9, .18], ["MS", 1, .5], ["RA", .9, .82]],
+    "WM (3-2-2-3)": [["LV", 0, .27], ["ZV", -.03, .5], ["RV", 0, .73], ["DM", .3, .33], ["DM", .3, .67], ["LHS", .66, .33], ["RHS", .66, .67], ["LA", .97, .1], ["MS", 1, .5], ["RA", .97, .9]],
+    "2-3-5": [["LV", 0, .33], ["RV", 0, .67], ["LM", .35, .14], ["ZM", .32, .5], ["RM", .35, .86], ["LA", 1, .06], ["LHS", .94, .3], ["MS", 1, .5], ["RHS", .94, .7], ["RA", 1, .94]],
+  };
+  const GROUPS = [
+    ["Viererkette", ["4-4-2", "4-4-2 Raute", "4-3-3", "4-2-3-1", "4-1-4-1", "4-5-1", "4-3-2-1", "4-1-2-1-2", "4-2-2-2", "4-3-1-2", "4-2-4", "4-6-0"]],
+    ["Dreierkette", ["3-5-2", "3-4-3", "3-4-2-1", "3-4-1-2", "3-1-4-2", "3-2-3-2"]],
+    ["Fünferkette", ["5-3-2", "5-4-1", "5-2-3"]],
+    ["Historisch", ["WM (3-2-2-3)", "2-3-5"]],
+  ];
+  // x-Position (m) von Torwart, Abwehrlinie und Sturmspitze
+  const LINES = { gk: 9, back: 30, front: 70 };
+  const TEAM_LABEL = { home: "Heim", away: "Gast" };
+  // Freie Situation: Bank unter dem Feld, Analyse-Schwellen in Metern
+  const BENCH_Y = 74.5, BENCH_STEP = 4.6, BENCH_X = { home: 3, away: 56 };
+  // Ball am Fuß: näher als ATTACH_R heftet er sich an, dann liegt er BALL_GAP vor der Spielermitte
+  const ATTACH_R = 3, BALL_GAP = 2.4;
+  // BLOCK_R: so nah an der Passlinie gilt ein Gegner als Blocker; der Deckungsschatten ist genauso breit
+  const HOLD_R = 2.5, ZONE_R = 15, BLOCK_R = 2, TIGHT = 3, PRESS = 6;
+
+  const $ = s => document.querySelector(s);
+  const svg = $("#board"), field = $("#field");
+  const L = {
+    cells: $("#layer-cells"), shadows: $("#layer-shadows"), grow: $("#layer-grow"), thin: $("#layer-thin"), edges: $("#layer-edges"),
+    circles: $("#layer-circles"), gaps: $("#layer-gaps"), gapLabels: $("#layer-gap-labels"),
+    focus: $("#layer-focus"), tokens: $("#layer-tokens"),
+    bench: $("#layer-bench"), passes: $("#layer-passes"), arrows: $("#layer-arrows"), notes: $("#layer-notes"),
+  };
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  const portraitMq = matchMedia("(max-width: 720px)");
+
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const fmt = (n, d = 1) => n.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  function layout(key, side) {
+    const p = LINES;
+    return [["TW", null, .5], ...FORMATIONS[key]].map(([pos, d, w]) => {
+      let x = d === null ? p.gk : p.back + d * (p.front - p.back);
+      let y = w * H;
+      if (side === "away") { x = W - x; y = H - y; }
+      return { pos, x, y };
+    });
+  }
+
+  const state = {
+    home: { formation: "4-3-3", players: layout("4-3-3", "home") },
+    away: { formation: "4-4-2", players: layout("4-4-2", "away") },
+    showAway: true,
+    voronoi: "all", delaunay: "team", gaps: "away", circles: false, thin: false, shadows: false,
+    ball: { x: 52.5, y: 34 },
+    mode: "lineup", free: null, arrows: [],
+    owner: { lineup: null, free: null },
+    otherBall: null, // Ball der gerade nicht gezeigten Ansicht
+    fv: { passes: true, gaps: true, net: true, shadows: false, cells: false },
+  };
+  let sel = null, selArrow = null, drag = null, drawing = null, bend = null, tool = "move", portrait = false, rafPending = false;
+
+  // Bankplätze einer freien Situation: Rückennummern 1 bis 11, das Kürzel ist änderbar
+  const freeLabel = k => String(k + 1);
+  const benchPos = (t, k) => ({ x: BENCH_X[t] + k * BENCH_STEP, y: BENCH_Y });
+  function emptyFree() {
+    const f = {};
+    for (const t of ["home", "away"]) f[t] = Array.from({ length: 11 }, (_, k) => ({ pos: freeLabel(k), on: false, x: 0, y: 0, note: "" }));
+    return f;
+  }
+  state.free = emptyFree();
+  const cleanLabel = v => String(v).replace(/[^\p{L}\p{N}]/gu, "").slice(0, 3);
+  const other = t => t === "home" ? "away" : "home";
+  // Nummern als „Nr. 7“, Kürzel wie „IV“ unverändert
+  const who = p => /^\d+$/.test(p.pos) ? `Nr. ${p.pos}` : p.pos;
+
+  const isFree = () => state.mode === "free";
+  // Freie Situation: vier einfache Schalter statt der Geometrie-Optionen
+  const view = () => isFree()
+    ? { voronoi: state.fv.cells ? "all" : "off", delaunay: state.fv.net ? "team" : "off", circles: false, thin: false, shadows: state.fv.shadows }
+    : state;
+  // Spieler auf dem Feld im aktiven Modus
+  const players = t => isFree() ? state.free[t].filter(p => p.on) : state[t].players;
+
+  // Ballbesitz je Ansicht: Team, Platz in der Aufstellung bzw. auf der Bank und Richtung zum Ball
+  const ownerKey = () => isFree() ? "free" : "lineup";
+  function ownerPlayer() {
+    const o = state.owner[ownerKey()];
+    if (!o) return null;
+    if (!isFree() && o.t === "away" && !state.showAway) return null;
+    const p = isFree() ? state.free[o.t][o.k] : state[o.t].players[o.k];
+    return p && (!isFree() || p.on) ? p : null;
+  }
+  // Läuft vor jedem Zeichnen: der Ball folgt seinem Spieler, egal wodurch dieser sich bewegt
+  function syncBall() {
+    const key = ownerKey(), o = state.owner[key];
+    if (!o) return;
+    const p = ownerPlayer();
+    if (!p) { state.owner[key] = null; return; }
+    state.ball.x = clamp(p.x + o.ox, 0, W);
+    state.ball.y = clamp(p.y + o.oy, 0, H);
+  }
+  // Ball abgelegt: liegt er nah an einem Spieler, gehört er ihm
+  function attachBall() {
+    const key = ownerKey();
+    let best = null;
+    for (const t of activeTeams()) for (const p of players(t)) {
+      const d = dist(p, state.ball);
+      if (d <= ATTACH_R && (!best || d < best.d)) best = { d, t, p };
+    }
+    if (!best) { state.owner[key] = null; return; }
+    let ox = state.ball.x - best.p.x, oy = state.ball.y - best.p.y;
+    const l = Math.hypot(ox, oy);
+    if (l < .1) { ox = 1; oy = 0; } else { ox /= l; oy /= l; }
+    const k = isFree() ? state.free[best.t].indexOf(best.p) : state[best.t].players.indexOf(best.p);
+    const r = n => Math.round(n * 10) / 10;
+    state.owner[key] = { t: best.t, k, ox: r(ox * BALL_GAP), oy: r(oy * BALL_GAP) };
+    syncBall();
+  }
+  let tweenId = 0, growId = 0, growR = null, growMode = "all";
+
+  // ---------- Geometrie ----------
+  function circumcircle(a, b, c) {
+    const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    if (Math.abs(d) < 1e-9) return null;
+    const a2 = a.x * a.x + a.y * a.y, b2 = b.x * b.x + b.y * b.y, c2 = c.x * c.x + c.y * c.y;
+    const x = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d;
+    const y = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
+    return { x, y, r: Math.hypot(a.x - x, a.y - y) };
+  }
+
+  function minAngle(a, b, c) {
+    const ab = dist(a, b), bc = dist(b, c), ca = dist(c, a);
+    if (!ab || !bc || !ca) return 0;
+    const A = Math.acos(clamp((ab * ab + ca * ca - bc * bc) / (2 * ab * ca), -1, 1));
+    const B = Math.acos(clamp((ab * ab + bc * bc - ca * ca) / (2 * ab * bc), -1, 1));
+    return Math.min(A, B, Math.PI - A - B) * 180 / Math.PI;
+  }
+
+  // Schneidet ein konvexes Polygon an der Linie x = c ab (Sutherland-Hodgman)
+  function clipX(poly, c, keepRight) {
+    const inside = p => keepRight ? p[0] >= c : p[0] <= c;
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      if (inside(a)) out.push(a);
+      if (inside(a) !== inside(b) && b[0] !== a[0]) {
+        const t = (c - a[0]) / (b[0] - a[0]);
+        out.push([c, a[1] + t * (b[1] - a[1])]);
+      }
+    }
+    return out;
+  }
+
+  // Vorzeichenbehaftete Fläche (Shoelace) und Punkt-in-Polygon (Strahlverfahren)
+  function polygonArea(poly) {
+    let a = 0;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) a += poly[j][0] * poly[i][1] - poly[i][0] * poly[j][1];
+    return a / 2;
+  }
+
+  function polygonContains(poly, [x, y]) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  const activeTeams = () => isFree() ? ["home", "away"].filter(t => players(t).length) : state.showAway ? ["home", "away"] : ["home"];
+
+  // In der freien Situation zählt nur der Ausschnitt um die Spieler (12 m Rand), nicht das ganze Feld
+  function situationBounds() {
+    const pts = activeTeams().flatMap(players);
+    if (!isFree() || !pts.length) return BOUNDS;
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y), m = 12;
+    return [Math.max(0, Math.min(...xs) - m), Math.max(0, Math.min(...ys) - m), Math.min(W, Math.max(...xs) + m), Math.min(H, Math.max(...ys) + m)];
+  }
+
+  function geometry() {
+    const teams = activeTeams();
+    const bounds = situationBounds();
+    const all = [];
+    for (const t of teams) players(t).forEach((p, i) => all.push({ t, i, p }));
+    const allDel = d3.Delaunay.from(all, d => d.p.x, d => d.p.y);
+    const allVor = allDel.voronoi(bounds);
+
+    const team = {};
+    for (const t of teams) {
+      const pts = players(t);
+      const del = d3.Delaunay.from(pts, p => p.x, p => p.y);
+      const tris = [];
+      for (let k = 0; k < del.triangles.length / 3; k++) {
+        const a = pts[del.triangles[3 * k]], b = pts[del.triangles[3 * k + 1]], c = pts[del.triangles[3 * k + 2]];
+        if (!a || !b || !c) continue; // d3 liefert bei weniger als drei Spielern Schein-Dreiecke
+        tris.push({ k, min: minAngle(a, b, c), cc: circumcircle(a, b, c) });
+      }
+      team[t] = { del, tris, vor: del.voronoi(bounds) };
+    }
+
+    const area = { home: 0, away: 0 }, half = { home: 0, away: 0 };
+    const cellArea = all.map((d, k) => {
+      const poly = allVor.cellPolygon(k);
+      if (!poly) return 0;
+      const a = Math.abs(polygonArea(poly));
+      area[d.t] += a;
+      const part = clipX(poly, HALF, d.t === "home");
+      if (part.length > 2) half[d.t] += Math.abs(polygonArea(part));
+      return a;
+    });
+    return { teams, bounds, all, allDel, allVor, team, area, half, cellArea };
+  }
+
+  // Größte leere Umkreise im Block eines Teams (ohne Torwart), Mittelpunkt innerhalb des Blocks
+  function findGaps(t) {
+    const pts = isFree() ? players(t) : players(t).slice(1);
+    if (pts.length < 3) return [];
+    const del = d3.Delaunay.from(pts, p => p.x, p => p.y);
+    const hull = del.hullPolygon();
+    const found = [];
+    for (let k = 0; k < del.triangles.length; k += 3) {
+      const tri = [pts[del.triangles[k]], pts[del.triangles[k + 1]], pts[del.triangles[k + 2]]];
+      if (tri.some(p => !p)) continue;
+      const cc = circumcircle(...tri);
+      if (!cc || cc.x < 0 || cc.x > W || cc.y < 0 || cc.y > H) continue;
+      if (!polygonContains(hull, [cc.x, cc.y])) continue;
+      found.push({ ...cc, tri });
+    }
+    found.sort((a, b) => b.r - a.r);
+    const pick = [];
+    for (const c of found) {
+      if (pick.every(p => Math.hypot(p.x - c.x, p.y - c.y) > p.r)) pick.push(c);
+      if (pick.length === 3) break;
+    }
+    return pick;
+  }
+
+  // ---------- Zeichnen ----------
+  function pitchMarkup() {
+    let s = `<rect class="turf-edge" x="-8" y="-8" width="121" height="96"/>`;
+    for (let k = 0; k < 14; k++) s += `<rect class="${k % 2 ? "turf-b" : "turf-a"}" x="${k * 7.5}" y="0" width="7.5" height="68"/>`;
+    return s + `<g class="chalk">
+      <rect x="0" y="0" width="105" height="68"/>
+      <line x1="52.5" y1="0" x2="52.5" y2="68"/>
+      <circle cx="52.5" cy="34" r="9.15"/>
+      <circle class="spot" cx="52.5" cy="34" r=".3"/>
+      <rect x="0" y="13.84" width="16.5" height="40.32"/>
+      <rect x="88.5" y="13.84" width="16.5" height="40.32"/>
+      <rect x="0" y="24.84" width="5.5" height="18.32"/>
+      <rect x="99.5" y="24.84" width="5.5" height="18.32"/>
+      <circle class="spot" cx="11" cy="34" r=".3"/>
+      <circle class="spot" cx="94" cy="34" r=".3"/>
+      <path d="M16.5 26.69A9.15 9.15 0 0 1 16.5 41.31"/>
+      <path d="M88.5 26.69A9.15 9.15 0 0 0 88.5 41.31"/>
+      <path d="M1 0A1 1 0 0 1 0 1M104 0A1 1 0 0 0 105 1M0 67A1 1 0 0 1 1 68M104 68A1 1 0 0 1 105 67"/>
+      <rect class="goal" x="-2" y="30.34" width="2" height="7.32"/>
+      <rect class="goal" x="105" y="30.34" width="2" height="7.32"/>
+    </g>`;
+  }
+
+  const isSel = (t, i) => !!sel && sel.t === t && sel.i === i;
+  const cellPath = (d, t, s) => d ? `<path class="cell ${t}${s ? " sel" : ""}" d="${d}"/>` : "";
+
+  function cellsMarkup(g) {
+    const t = view().voronoi;
+    if (t === "all") return g.all.map((d, k) => cellPath(g.allVor.renderCell(k), d.t, isSel(d.t, d.i))).join("");
+    if (t === "off" || !g.team[t]) return "";
+    return players(t).map((p, i) => cellPath(g.team[t].vor.renderCell(i), t, isSel(t, i))).join("");
+  }
+
+  function growMarkup(g) {
+    let cells;
+    if (growMode !== "all" && g.team[growMode]) {
+      const t = growMode;
+      cells = players(t).map((p, i) => ({ t, p, d: g.team[t].vor.renderCell(i) }));
+    } else {
+      cells = g.all.map((a, k) => ({ t: a.t, p: a.p, d: g.allVor.renderCell(k) }));
+    }
+    return cells.map((c, k) => c.d ? `<clipPath id="gc${k}"><path d="${c.d}"/></clipPath>
+      <circle class="grow-fill ${c.t}" cx="${c.p.x}" cy="${c.p.y}" r="${growR}" clip-path="url(#gc${k})"/>
+      <circle class="grow-ring" cx="${c.p.x}" cy="${c.p.y}" r="${growR}"/>` : "").join("");
+  }
+
+  function edgesMarkup(g) {
+    // Je Team: beide Netze; Heim oder Gast: nur dieses Netz
+    const net = view().delaunay;
+    const own = net === "team" ? g.teams : g.teams.filter(t => t === net);
+    if (net !== "all") return own.map(t => `<path class="edges ${t}" d="${g.team[t].del.render()}"/>`).join("");
+    const paths = { cross: "", home: "", away: "" };
+    const { triangles, halfedges } = g.allDel;
+    for (let e = 0; e < triangles.length; e++) {
+      if (e < halfedges[e]) continue; // jede Kante nur einmal
+      const a = g.all[triangles[e]], b = g.all[triangles[e % 3 === 2 ? e - 2 : e + 1]];
+      if (!a || !b || a === b) continue;
+      paths[a.t === b.t ? a.t : "cross"] += `M${a.p.x} ${a.p.y}L${b.p.x} ${b.p.y}`;
+    }
+    return Object.entries(paths).map(([c, d]) => d ? `<path class="edges ${c}" d="${d}"/>` : "").join("");
+  }
+
+  function circlesMarkup(g) {
+    let s = "";
+    const add = (cc, cls) => {
+      if (!cc || cc.r > 70) return;
+      s += `<circle class="cc ${cls}" cx="${cc.x}" cy="${cc.y}" r="${cc.r}"/><circle class="ccdot" cx="${cc.x}" cy="${cc.y}" r=".38"/>`;
+    };
+    const net = view().delaunay;
+    if (net === "all") {
+      const tr = g.allDel.triangles;
+      for (let k = 0; k < tr.length; k += 3) {
+        const [a, b, c] = [g.all[tr[k]], g.all[tr[k + 1]], g.all[tr[k + 2]]];
+        if (a && b && c) add(circumcircle(a.p, b.p, c.p), "cross");
+      }
+    } else {
+      const only = net === "home" || net === "away" ? net : null;
+      for (const t of g.teams) if (!only || t === only) for (const tri of g.team[t].tris) add(tri.cc, t);
+    }
+    return s;
+  }
+
+  function thinMarkup(g) {
+    const net = view().delaunay, only = net === "home" || net === "away" ? net : null;
+    return g.teams.filter(t => !only || t === only).flatMap(t => g.team[t].tris.filter(x => x.min < THIN)
+      .map(x => `<path class="thin" d="${g.team[t].del.renderTriangle(x.k)}"/>`)).join("");
+  }
+
+  function gapsMarkup(list) {
+    let shapes = "", labels = "";
+    list.forEach((c, n) => {
+      const [p, q, r] = c.tri;
+      shapes += `<circle class="gap" cx="${c.x}" cy="${c.y}" r="${c.r}"/>
+        <path class="gap-tri" d="M${p.x} ${p.y}L${q.x} ${q.y}L${r.x} ${r.y}Z"/>
+        <path class="gap-x" d="M${c.x - .8} ${c.y}h1.6M${c.x} ${c.y - .8}v1.6"/>`;
+      labels += `<g transform="translate(${c.x} ${c.y}) rotate(${portrait ? 90 : 0})"><text class="gap-label" transform="scale(.1)" y="-14">${n + 1} · ${fmt(c.r)} m</text></g>`;
+    });
+    return [shapes, labels];
+  }
+
+  function neighbours(g) {
+    // Bei einem einzelnen Punkt liefert d3 den Nachbarn -1
+    const mates = [...g.team[sel.t].del.neighbors(sel.i)].filter(i => i >= 0).map(i => players(sel.t)[i]);
+    const k = g.all.findIndex(d => d.t === sel.t && d.i === sel.i);
+    const opps = k < 0 ? [] : [...g.allDel.neighbors(k)].filter(j => j >= 0).map(j => g.all[j]).filter(d => d.t !== sel.t).map(d => d.p);
+    return { mates, opps, k };
+  }
+
+  function focusMarkup(g) {
+    const p = players(sel.t)[sel.i], nb = neighbours(g);
+    const line =(q, cls) => `<line class="link ${cls}" x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}"/>`;
+    return nb.opps.map(q => line(q, "opp")).join("") + nb.mates.map(q => line(q, "mate")).join("");
+  }
+
+  function benchMarkup() {
+    if (!isFree()) return "";
+    const rot = portrait ? "rotate(90) scale(.1)" : "scale(.1)";
+    let s = `<rect class="bench-strip home" x="0" y="70.6" width="50.6" height="7.8" rx="1"/>
+      <rect class="bench-strip away" x="54.4" y="70.6" width="50.6" height="7.8" rx="1"/>`;
+    for (const t of ["home", "away"]) {
+      state.free[t].forEach((p, k) => {
+        if (p.on) return;
+        const b = benchPos(t, k);
+        s += `<g class="bench-tok ${t}" data-drag="bench" data-team="${t}" data-slot="${k}" tabindex="0" role="button"
+          aria-label="${TEAM_LABEL[t]} ${p.pos} aufs Feld stellen" transform="translate(${b.x} ${b.y})">
+          <circle class="hit" r="2.3"/><circle class="ring" r="2.6"/><circle class="disc" r="1.9"/>
+          <text class="tok-label" transform="${rot}">${p.pos}</text></g>`;
+      });
+    }
+    return s;
+  }
+
+  function buildTokens() {
+    L.bench.innerHTML = benchMarkup();
+    let s = "";
+    for (const t of activeTeams()) {
+      players(t).forEach((p, i) => {
+        s += `<g class="token ${t}" data-drag="player" data-team="${t}" data-i="${i}" tabindex="0" role="button">
+          <circle class="hit" r="3.2"/><circle class="ring" r="2.9"/><circle class="disc" r="2.1"/>
+          <text class="tok-label"></text></g>`;
+      });
+    }
+    s += `<g class="ball" data-drag="ball" tabindex="0" role="button" aria-label="Ball">
+      <circle class="hit" r="2.2"/><circle class="ball-disc" r=".95"/><circle class="ball-core" r=".36"/></g>`;
+    L.tokens.innerHTML = s;
+  }
+
+  function updateTokens() {
+    const rot = portrait ? "rotate(90) scale(.1)" : "scale(.1)";
+    for (const el of L.tokens.querySelectorAll(".token")) {
+      const t = el.dataset.team, i = +el.dataset.i, p = players(t)[i];
+      el.setAttribute("transform", `translate(${p.x} ${p.y})`);
+      el.classList.toggle("selected", isSel(t, i));
+      el.setAttribute("aria-label", `${TEAM_LABEL[t]} ${p.pos}`);
+      const txt = el.querySelector("text");
+      if (txt.textContent !== p.pos) txt.textContent = p.pos;
+      txt.setAttribute("transform", rot);
+    }
+    const ball = L.tokens.querySelector(".ball");
+    if (ball) {
+      ball.setAttribute("transform", `translate(${state.ball.x} ${state.ball.y})`);
+      // Angehefteter Ball: kleinere Greiffläche, damit man den Spieler daneben noch gut erwischt
+      const attached = !!ownerPlayer();
+      ball.classList.toggle("attached", attached);
+      ball.querySelector(".hit").setAttribute("r", attached ? 1.2 : 2.2);
+      ball.setAttribute("aria-label", attached ? "Ball, am Fuß" : "Ball");
+    }
+  }
+
+  // Pfeile: gerade oder als quadratische Kurve mit Kontrollpunkt (cx, cy)
+  const ctrl = a => a.cx === undefined ? { x: (a.x1 + a.x2) / 2, y: (a.y1 + a.y2) / 2 } : { x: a.cx, y: a.cy };
+  const qpt = (a, c, t) => ({
+    x: (1 - t) * (1 - t) * a.x1 + 2 * (1 - t) * t * c.x + t * t * a.x2,
+    y: (1 - t) * (1 - t) * a.y1 + 2 * (1 - t) * t * c.y + t * t * a.y2,
+  });
+  const arrowPath = a => a.cx === undefined ? `M${a.x1} ${a.y1}L${a.x2} ${a.y2}` : `M${a.x1} ${a.y1}Q${a.cx} ${a.cy} ${a.x2} ${a.y2}`;
+
+  function curveLength(a, c) {
+    let len = 0, prev = { x: a.x1, y: a.y1 };
+    for (let k = 1; k <= 12; k++) { const q = qpt(a, c, k / 12); len += dist(prev, q); prev = q; }
+    return len;
+  }
+
+  // Die Spitze ist ein eigenes Dreieck in Richtung der Kurventangente, damit sie auch im Bild-Export stimmt
+  function arrowMarkup(a, extra = "") {
+    const c = ctrl(a), hl = 1.5, hw = .75;
+    let tx = a.x2 - c.x, ty = a.y2 - c.y;
+    if (Math.hypot(tx, ty) < .05) { tx = a.x2 - a.x1; ty = a.y2 - a.y1; }
+    const tl = Math.hypot(tx, ty), len = curveLength(a, c);
+    if (tl < .05 || len < .5) return "";
+    const ux = tx / tl, uy = ty / tl, bx = a.x2 - ux * hl, by = a.y2 - uy * hl;
+    let body;
+    if (a.cx === undefined) body = `M${a.x1} ${a.y1}L${bx} ${by}`;
+    else {
+      // Kurve kurz vor der Spitze teilen (de Casteljau), damit die Linie nicht unter der Spitze hervorschaut
+      const t = clamp(1 - hl / len, 0, 1), q = qpt(a, c, t);
+      body = `M${a.x1} ${a.y1}Q${a.x1 + t * (c.x - a.x1)} ${a.y1 + t * (c.y - a.y1)} ${q.x} ${q.y}`;
+    }
+    return `<path class="arrow ${a.k}${extra}" d="${body}"/>
+      <path class="arrow-head ${a.k}" d="M${a.x2} ${a.y2}L${bx - uy * hw} ${by + ux * hw}L${bx + uy * hw} ${by - ux * hw}Z"/>`;
+  }
+
+  function arrowsMarkup() {
+    if (!isFree()) return "";
+    let s = state.arrows.map((a, k) =>
+      `<path class="arrow-hit" data-arrow="${k}" d="${arrowPath(a)}"/>${arrowMarkup(a, k === selArrow ? " sel" : "")}`).join("");
+    const a = selArrow !== null ? state.arrows[selArrow] : null;
+    if (a) {
+      const m = qpt(a, ctrl(a), .5);
+      s += `<circle class="arrow-handle" data-handle="${selArrow}" cx="${m.x}" cy="${m.y}" r="1.1"/>`;
+    }
+    if (drawing) s += arrowMarkup(drawing.arrow, " preview");
+    return s;
+  }
+
+  // Notizen unter den Spielern, umbrochen auf höchstens drei Zeilen
+  function wrap(text, max = 22) {
+    const lines = [];
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      const last = lines[lines.length - 1];
+      if (last && (last + " " + word).length <= max) lines[lines.length - 1] = last + " " + word;
+      else lines.push(word);
+    }
+    return lines.slice(0, 3);
+  }
+  const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  function notesMarkup() {
+    if (!isFree()) return "";
+    const rot = portrait ? 90 : 0;
+    return activeTeams().flatMap(t => players(t).filter(p => p.note).map(p =>
+      `<g transform="translate(${p.x} ${p.y}) rotate(${rot})"><text class="note-label" transform="scale(.1)" y="40">${
+        wrap(p.note).map((l, n) => `<tspan x="0" dy="${n ? 14 : 0}">${esc(l)}</tspan>`).join("")}</text></g>`)).join("");
+  }
+
+  function passesMarkup(an) {
+    if (!isFree() || !state.fv.passes || !an.holder) return "";
+    const h = an.holder.p;
+    return an.options.map(o => `<line class="pass-line ${o.blocker ? "blocked" : "open"}${o === an.best ? " best" : ""}"
+      x1="${h.x}" y1="${h.y}" x2="${o.p.x}" y2="${o.p.y}"/>`).join("");
+  }
+
+  function render() {
+    rafPending = false;
+    syncBall();
+    const g = geometry();
+    const an = analyse(g);
+    const holder = isFree() ? an.holder : holderOf(g);
+    const growing = growR !== null;
+    // Freie Situation: nur die größte Lücke im Block der Mannschaft ohne Ball
+    const gapTeam = isFree() ? (state.fv.gaps && an.holder ? other(an.holder.t) : null) : state.gaps !== "off" ? state.gaps : null;
+    const gapList = !growing && gapTeam && g.team[gapTeam] ? findGaps(gapTeam).slice(0, isFree() ? 1 : 3) : [];
+    L.cells.innerHTML = growing ? "" : cellsMarkup(g);
+    L.shadows.innerHTML = growing ? "" : shadowsMarkup(g, holder);
+    L.grow.innerHTML = growing ? growMarkup(g) : "";
+    L.thin.innerHTML = !growing && view().thin ? thinMarkup(g) : "";
+    L.edges.innerHTML = growing ? "" : edgesMarkup(g);
+    L.circles.innerHTML = !growing && view().circles ? circlesMarkup(g) : "";
+    [L.gaps.innerHTML, L.gapLabels.innerHTML] = gapsMarkup(gapList);
+    L.focus.innerHTML = !growing && sel ? focusMarkup(g) : "";
+    L.passes.innerHTML = growing ? "" : passesMarkup(an);
+    L.arrows.innerHTML = arrowsMarkup();
+    L.notes.innerHTML = notesMarkup();
+    updateTokens();
+    renderStats(g, gapList, an);
+    syncSelEditor();
+  }
+
+  function schedule() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(render);
+  }
+
+  // ---------- Auswertung ----------
+  // Abstand von Punkt p zur Strecke a-b und Lage entlang der Strecke (0 = a, 1 = b)
+  function segDist(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy || 1;
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    const tc = clamp(t, 0, 1);
+    return { d: Math.hypot(p.x - (a.x + tc * dx), p.y - (a.y + tc * dy)), t };
+  }
+
+  // Ballführender: der Spieler mit angeheftetem Ball, in der freien Situation sonst der Nächste im Umkreis
+  function holderOf(g) {
+    const op = ownerPlayer();
+    const d = op ? g.all.find(x => x.p === op) : null;
+    if (d) return { ...d, r: dist(d.p, state.ball) };
+    if (!isFree()) return null;
+    let near = null;
+    for (const x of g.all) {
+      const r = dist(x.p, state.ball);
+      if (r <= HOLD_R && (!near || r < near.r)) near = { ...x, r };
+    }
+    return near;
+  }
+
+  // Deckungsschatten: Kegel vom Ball an einem Kreis mit Radius BLOCK_R um den Verteidiger vorbei, 30 m lang
+  function shadowsMarkup(g, holder) {
+    if (!holder || !view().shadows) return "";
+    const b = state.ball, defenders = players(other(holder.t));
+    return defenders.map(c => {
+      const dx = c.x - b.x, dy = c.y - b.y, d = Math.hypot(dx, dy);
+      if (d <= BLOCK_R + .2) return "";
+      const a = Math.asin(BLOCK_R / d), base = Math.atan2(dy, dx), near = Math.sqrt(d * d - BLOCK_R * BLOCK_R), far = d + 30;
+      const at = (ang, len) => `${b.x + Math.cos(ang) * len} ${b.y + Math.sin(ang) * len}`;
+      // Die Kante zwischen den Tangentenpunkten liegt im Kreis und damit unter der Spielfigur
+      return `<path class="shadow" d="M${at(base - a, near)}L${at(base + a, near)}L${at(base + a, far)}L${at(base - a, far)}Z"/>`;
+    }).join("");
+  }
+
+  // Bewertung der freien Situation rund um den Ball
+  function analyse(g) {
+    const an = { holder: null, options: [], best: null, zone: { home: 0, away: 0 }, gap: null };
+    if (!isFree() || !g.all.length) return an;
+    const ball = state.ball;
+    for (const d of g.all) if (dist(d.p, ball) <= ZONE_R) an.zone[d.t]++;
+    const near = holderOf(g);
+    if (!near) return an;
+    an.holder = near;
+    const t = near.t, o = other(t), dir = t === "home" ? 1 : -1;
+    const opps = players(o);
+    const pressure = q => opps.length ? Math.min(...opps.map(x => dist(q, x))) : Infinity;
+    an.holderPressure = { d: pressure(near.p), by: opps.length ? opps.reduce((m, x) => dist(near.p, x) < dist(near.p, m) ? x : m) : null };
+    an.options = players(t).filter(q => q !== near.p).map(q => {
+      let blocker = null, bd = Infinity;
+      for (const x of opps) {
+        const s = segDist(x, near.p, q);
+        if (s.t > .08 && s.t < .95 && s.d < BLOCK_R && s.d < bd) { blocker = x; bd = s.d; }
+      }
+      return { p: q, blocker, free: pressure(q), gain: (q.x - near.p.x) * dir, len: dist(near.p, q) };
+    });
+    const open = an.options.filter(x => !x.blocker);
+    an.best = open.length ? open.reduce((m, x) => {
+      const score = x => Math.min(x.free, 12) + .5 * x.gain;
+      return score(x) > score(m) ? x : m;
+    }) : null;
+    an.gap = findGaps(o)[0] || null;
+    return an;
+  }
+
+  function pressureText(d) {
+    if (d === Infinity) return "kein Gegner in der Nähe";
+    if (d < TIGHT) return `eng gedeckt (${fmt(d)} m)`;
+    if (d < PRESS) return `unter Druck (${fmt(d)} m)`;
+    return `frei (${fmt(d)} m bis zum Gegner)`;
+  }
+
+  function analysisMarkup(g, an) {
+    const items = [];
+    const z = an.zone, diff = z.home - z.away;
+    if (!g.all.length) return `<p class="muted">Noch niemand auf dem Feld. Zieh Spieler von der Bank unter dem Feld aufs Feld.</p>`;
+    items.push(`Im Ballumfeld (${ZONE_R} m) stehen ${z.home} Heim gegen ${z.away} Gast: ${
+      diff > 0 ? "Überzahl Heim" : diff < 0 ? "Überzahl Gast" : "Gleichzahl"}.`);
+    if (!an.holder) {
+      items.push(`Kein Spieler am Ball. Zieh den Ball an einen Spieler (näher als ${ATTACH_R} m), dann klebt er an ihm und die Tafel bewertet die Situation.`);
+    } else {
+      const h = an.holder, hp = an.holderPressure;
+      items.push(`Am Ball: <b>${TEAM_LABEL[h.t]} ${esc(who(h.p))}</b>, ${hp.by ? `${pressureText(hp.d)}${hp.d < PRESS ? ` durch ${esc(who(hp.by))}` : ""}` : "kein Gegner auf dem Feld"}.`);
+      if (!an.options.length) items.push("Kein Mitspieler auf dem Feld: Dribbling oder Ball abschirmen.");
+      else if (state.fv.passes) {
+        for (const x of an.options) {
+          const way = x.blocker ? `Passweg <b>zugestellt</b> von ${esc(who(x.blocker))}` : "Passweg offen";
+          const gain = Math.abs(x.gain) < 1 ? "auf gleicher Höhe" : x.gain > 0 ? `${fmt(x.gain, 0)} m nach vorn` : `${fmt(-x.gain, 0)} m zurück`;
+          const line = `${esc(who(x.p))}: ${way}, ${pressureText(x.free)}, ${gain}`;
+          items.push(x === an.best ? `<span class="best">${line}</span>` : line);
+        }
+        if (an.best) items.push(`<span class="best">Empfehlung: Pass auf ${esc(who(an.best.p))}</span> (grün eingezeichnet). Offener Passweg, ${
+          an.best.free === Infinity ? "ohne Gegner" : `${fmt(an.best.free)} m Platz`}${an.best.gain >= 1 ? ` und ${fmt(an.best.gain, 0)} m Raumgewinn` : ""}.`);
+        else items.push("Alle Passwege sind zugestellt: freilaufen, Dribbling oder Ball sichern.");
+      }
+      if (state.fv.gaps && an.gap) items.push(`Größte Lücke im ${TEAM_LABEL[other(h.t)]}-Block: ${fmt(an.gap.r)} m Radius zwischen ${
+        an.gap.tri.map(p => esc(who(p))).join(", ")}. Dorthin freilaufen.`);
+    }
+    return `<div class="metric"><div class="metric-head"><span>Situationsanalyse</span></div>
+      <ul class="analysis">${items.map(i => `<li>${i}</li>`).join("")}</ul></div>`;
+  }
+
+  function renderStats(g, gapList, an) {
+    $("#analysis").innerHTML = isFree() ? analysisMarkup(g, an) : "";
+    const ctl = $("#control");
+    const [x0, y0, x1, y1] = g.bounds, total = (x1 - x0) * (y1 - y0);
+    if (g.teams.length === 2) {
+      const h = g.area.home / total * 100;
+      const hRound = Math.round(h);
+      ctl.innerHTML = `<div class="metric">
+        <div class="metric-head"><span>Raumkontrolle</span><span class="metric-note">${isFree() ? "im Ausschnitt um die Spieler" : "Voronoi über alle 22 Spieler"}</span></div>
+        <div class="split" role="img" aria-label="Heim ${hRound} Prozent, Gast ${100 - hRound} Prozent"><span class="split-home" style="width:${h}%"></span></div>
+        <div class="split-legend"><span>Heim <b>${hRound} %</b></span><span>Gast <b>${100 - hRound} %</b></span></div>
+        ${isFree() ? "" : `<p class="sub">Heim in der Gast-Hälfte: ${Math.round(g.half.home / (HALF * H) * 100)} % · Gast in der Heim-Hälfte: ${Math.round(g.half.away / (HALF * H) * 100)} %</p>`}
+      </div>`;
+    } else if (isFree()) {
+      ctl.innerHTML = "";
+    } else {
+      ctl.innerHTML = `<p class="muted">Ohne Gegner gehört Heim die ganze Fläche. Blende den Gegner ein, um die Raumkontrolle zu messen.</p>`;
+    }
+
+    const rows = g.teams.map(t => {
+      const tris = g.team[t].tris;
+      const thin = tris.filter(x => x.min < THIN).length;
+      const avg = tris.reduce((s, x) => s + x.min, 0) / (tris.length || 1);
+      return `<tr><td><span class="swatch ${t}"></span>${TEAM_LABEL[t]}</td><td>${tris.length}</td><td>${thin}</td><td>${Math.round(avg)}°</td></tr>`;
+    }).join("");
+    $("#tri-stats").innerHTML = `<table class="tri">
+      <thead><tr><th>Team-Dreiecke</th><th>Anzahl</th><th>spitz</th><th>Ø kleinster Winkel</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+
+    const gs = $("#gap-stats");
+    if (state.gaps === "off" || !g.team[state.gaps]) gs.innerHTML = "";
+    else if (!gapList.length) gs.innerHTML = `<p class="muted">Im ${TEAM_LABEL[state.gaps]}-Block ist gerade keine Lücke zu finden.</p>`;
+    else gs.innerHTML = `<div class="metric"><div class="metric-head"><span>Größte Freiräume im ${TEAM_LABEL[state.gaps]}-Block</span></div>
+      <ol class="gaps">${gapList.map(c => `<li>Radius <b>${fmt(c.r)} m</b> zwischen ${c.tri.map(p => p.pos).join(", ")}</li>`).join("")}</ol></div>`;
+
+    const info = $("#player-info");
+    if (!sel) {
+      info.innerHTML = `<p class="muted">Tippe auf einen Spieler, um seinen Raum, seine Anspielstationen und seine direkten Gegenspieler zu sehen. Doppeltippen spielt ihm den Ball zu. Mit Umschalt gezogen geht die ganze Mannschaft mit.</p>`;
+      return;
+    }
+    const p = players(sel.t)[sel.i], nb = neighbours(g);
+    const others = g.teams.length === 2 ? players(sel.t === "home" ? "away" : "home") : [];
+    const nearest = others.length ? Math.min(...others.map(q => dist(p, q))) : null;
+    const list = arr => arr.length ? `<small>${arr.map(q => q.pos).join(", ")}</small>` : "";
+    info.innerHTML = `<div class="pinfo">
+      <div class="pinfo-head"><span class="swatch ${sel.t}"></span><strong>${p.pos}</strong><span>${TEAM_LABEL[sel.t]} · ${state[sel.t].formation}</span></div>
+      <dl class="kv">
+        <dt>Eigener Raum</dt><dd>${fmt(g.cellArea[nb.k] || 0, 0)} m²</dd>
+        <dt>Nachbarn im Team</dt><dd>${nb.mates.length}${list(nb.mates)}</dd>
+        ${others.length ? `<dt>Direkte Gegenspieler</dt><dd>${nb.opps.length}${list(nb.opps)}</dd>
+        <dt>Nächster Gegner</dt><dd>${fmt(nearest)} m</dd>` : ""}
+      </dl>
+      ${ownerPlayer() && ownerPlayer() !== p ? `<div class="btn-row"><button type="button" class="btn" data-pass-here>Ball zu ${esc(p.pos)} passen</button></div>` : ""}</div>`;
+  }
+
+  // Eingabefelder nur neu befüllen, wenn sich die Auswahl ändert, sonst springt beim Tippen der Cursor
+  let editFor = null;
+  function syncSelEditor() {
+    const p = isFree() && sel ? players(sel.t)[sel.i] : null;
+    const a = isFree() && selArrow !== null ? state.arrows[selArrow] : null;
+    $("#sel-edit").hidden = !p && !a;
+    $("#player-edit").hidden = !p;
+    $("#arrow-edit").hidden = !a;
+    $("#h-sel").textContent = p ? `Auswahl: ${TEAM_LABEL[sel.t]} ${who(p)}` : a ? `Auswahl: ${a.k === "pass" ? "Passweg" : "Laufweg"}` : "Auswahl";
+    if (a) {
+      $("#arrow-info").textContent = a.cx === undefined
+        ? "Den weißen Punkt in der Mitte ziehen, um den Pfeil zu biegen."
+        : "Gebogen. Den weißen Punkt ziehen, um den Bogen zu ändern.";
+      $("#btn-arrow-kind").textContent = a.k === "pass" ? "In Laufweg ändern" : "In Passweg ändern";
+      $("#btn-straight").disabled = a.cx === undefined;
+    }
+    const passBtn = $("#btn-pass-here"), op = ownerPlayer();
+    passBtn.hidden = !p || !op || op === p;
+    if (p && op) passBtn.textContent = `Ball zu ${who(p)} passen`;
+    if (!p) { editFor = null; return; }
+    if (editFor === p) return;
+    editFor = p;
+    $("#label-in").value = p.pos;
+    $("#note-in").value = p.note;
+  }
+
+  // ---------- Bewegung ----------
+  let tweenTeams = [];
+  function cancelTween() { tweenId++; tweenTeams = []; }
+
+  function relayout(teams) {
+    // Teams, die gerade noch einlaufen, laufen mit ins neue Ziel
+    teams = [...new Set([...tweenTeams, ...teams])];
+    cancelTween();
+    tweenTeams = teams;
+    const id = tweenId;
+    const target = {}, from = {};
+    for (const t of teams) {
+      target[t] = layout(state[t].formation, t);
+      from[t] = state[t].players.map(p => ({ ...p }));
+    }
+    const apply = e => {
+      for (const t of teams) {
+        state[t].players = target[t].map((q, i) => ({
+          pos: q.pos,
+          x: from[t][i].x + (q.x - from[t][i].x) * e,
+          y: from[t][i].y + (q.y - from[t][i].y) * e,
+        }));
+      }
+    };
+    if (reduceMotion.matches) { apply(1); tweenTeams = []; render(); save(); return; }
+    const t0 = performance.now(), dur = 380;
+    const step = now => {
+      if (id !== tweenId) return;
+      const k = Math.min(1, (now - t0) / dur);
+      apply(1 - Math.pow(1 - k, 3));
+      render();
+      if (k < 1) requestAnimationFrame(step); else { tweenTeams = []; save(); }
+    };
+    requestAnimationFrame(step);
+  }
+
+  // Wachsende Kreise: alle Spieler gleich schnell, wo sich die Kreise treffen, entsteht die Zellgrenze
+  function grow() {
+    const id = ++growId;
+    growMode = state.voronoi === "off" ? "all" : state.voronoi;
+    const btn = $("#btn-grow");
+    const finish = () => {
+      growR = null;
+      btn.disabled = false;
+      if (state.voronoi === "off") { state.voronoi = "all"; syncControls(); save(); }
+      render();
+    };
+    if (reduceMotion.matches) { finish(); return; }
+    btn.disabled = true;
+    const t0 = performance.now(), dur = 3200, R = 42;
+    const step = now => {
+      if (id !== growId) return;
+      const k = Math.min(1, (now - t0) / dur);
+      growR = R * k;
+      render();
+      if (k < 1) requestAnimationFrame(step); else finish();
+    };
+    requestAnimationFrame(step);
+  }
+
+  function toField(e) {
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    return pt.matrixTransform(field.getScreenCTM().inverse());
+  }
+
+  function targetOf(tok) {
+    return tok.dataset.drag === "ball" ? state.ball : players(tok.dataset.team)[+tok.dataset.i];
+  }
+
+  // Pfeilenden rasten an Spielern im Umkreis von 3 m ein
+  function snapPoint(pt) {
+    let best = null;
+    for (const t of activeTeams()) for (const p of players(t)) {
+      const d = dist(p, pt);
+      if (d < 3 && (!best || d < best.d)) best = { d, p };
+    }
+    return best ? { x: best.p.x, y: best.p.y, snapped: true } : { x: pt.x, y: pt.y, snapped: false };
+  }
+
+  // Eingerastete Enden enden am Rand der Spielfigur, nicht in ihrer Mitte
+  function arrowBetween(a, b, k) {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const r = n => Math.round(n * 10) / 10;
+    if (len < 6) return { k, x1: r(a.x), y1: r(a.y), x2: r(b.x), y2: r(b.y) };
+    const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len, s = a.snapped ? 2.6 : 0, e = b.snapped ? 2.6 : 0;
+    return { k, x1: r(a.x + ux * s), y1: r(a.y + uy * s), x2: r(b.x - ux * e), y2: r(b.y - uy * e) };
+  }
+
+  function toolDown(e) {
+    const pt = toField(e);
+    if (pt.x < 0 || pt.x > W || pt.y < 0 || pt.y > H) return;
+    e.preventDefault();
+    const start = snapPoint(pt);
+    drawing = { id: e.pointerId, start, arrow: arrowBetween(start, start, tool) };
+    svg.setPointerCapture(e.pointerId);
+  }
+
+  // Pass: Der Ball rollt zum Empfänger und kommt auf der dem Passgeber zugewandten Seite an
+  let passId = 0, lastTap = null;
+  function passTo(target) {
+    const from = ownerPlayer();
+    if (!from || from === target) return;
+    const t = activeTeams().find(x => players(x).includes(target));
+    if (!t) return;
+    remember();
+    const key = ownerKey(), id = ++passId;
+    const k = isFree() ? state.free[t].indexOf(target) : state[t].players.indexOf(target);
+    let ox = from.x - target.x, oy = from.y - target.y;
+    const l = Math.hypot(ox, oy) || 1;
+    ox = Math.round(ox / l * BALL_GAP * 10) / 10;
+    oy = Math.round(oy / l * BALL_GAP * 10) / 10;
+    if (isFree()) {
+      state.arrows.push(arrowBetween({ x: from.x, y: from.y, snapped: true }, { x: target.x, y: target.y, snapped: true }, "pass"));
+      if (state.arrows.length > 80) state.arrows.shift();
+    }
+    state.owner[key] = null;
+    const start = { x: state.ball.x, y: state.ball.y }, end = { x: clamp(target.x + ox, 0, W), y: clamp(target.y + oy, 0, H) };
+    const finish = () => {
+      if (id !== passId) return;
+      state.owner[key] = { t, k, ox, oy };
+      render();
+      save();
+    };
+    if (reduceMotion.matches) { finish(); return; }
+    const t0 = performance.now(), dur = Math.min(900, 250 + dist(start, end) * 14);
+    const step = now => {
+      if (id !== passId) return;
+      const q = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - q, 2);
+      state.ball.x = start.x + (end.x - start.x) * e;
+      state.ball.y = start.y + (end.y - start.y) * e;
+      render();
+      if (q < 1) requestAnimationFrame(step); else finish();
+    };
+    requestAnimationFrame(step);
+  }
+
+  // Zweimal kurz hintereinander auf denselben Spieler tippen spielt ihm den Ball zu
+  function handleTap(p) {
+    const now = performance.now();
+    if (lastTap && lastTap.p === p && now - lastTap.t < 420) { lastTap = null; passTo(p); return; }
+    lastTap = { p, t: now };
+  }
+
+  function placeFromBench(t, slot, x, y) {
+    slot.on = true;
+    slot.x = clamp(x, 0, W);
+    slot.y = clamp(y, 0, H);
+    buildTokens();
+    sel = { t, i: players(t).indexOf(slot) };
+    L.tokens.querySelector(`.token.${t}[data-i="${sel.i}"]`)?.focus({ preventScroll: true });
+  }
+
+  function removeToBench(slot) {
+    slot.on = false;
+    sel = null;
+    editFor = null;
+    buildTokens();
+  }
+
+  svg.addEventListener("pointerdown", e => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (isFree()) {
+      // Biegepunkt eines Pfeils ziehen
+      const handle = e.target.closest("[data-handle]");
+      if (handle) {
+        e.preventDefault();
+        bend = { id: e.pointerId, k: +handle.dataset.handle, before: snapshot(), moved: false };
+        svg.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (tool !== "move") { toolDown(e); return; }
+      const hit = e.target.closest("[data-arrow]");
+      if (hit) { selArrow = +hit.dataset.arrow; sel = null; render(); return; }
+    }
+    const tok = e.target.closest("[data-drag]");
+    if (!tok) {
+      if (sel || selArrow !== null) { sel = null; selArrow = null; render(); }
+      return;
+    }
+    selArrow = null;
+    e.preventDefault();
+    cancelTween();
+    const pt = toField(e);
+    if (tok.dataset.drag === "bench") {
+      const before = snapshot(), t = tok.dataset.team, slot = state.free[t][+tok.dataset.slot];
+      placeFromBench(t, slot, pt.x, pt.y);
+      drag = { id: e.pointerId, obj: slot, dx: 0, dy: 0, before, moved: true, player: true, fromBench: true };
+      svg.setPointerCapture(e.pointerId);
+      svg.classList.add("dragging");
+      render();
+      return;
+    }
+    const obj = targetOf(tok);
+    if (tok.dataset.drag === "player") sel = { t: tok.dataset.team, i: +tok.dataset.i };
+    drag = { id: e.pointerId, obj, dx: pt.x - obj.x, dy: pt.y - obj.y, before: snapshot(), moved: false, player: tok.dataset.drag === "player" };
+    if (obj === state.ball) { passId++; state.owner[ownerKey()] = null; }
+    // Mit Umschalt zieht die ganze Mannschaft mit
+    if (drag.player && e.shiftKey) drag.group = players(tok.dataset.team).map(q => ({ p: q, x: q.x, y: q.y }));
+    svg.setPointerCapture(e.pointerId);
+    svg.classList.add("dragging");
+    tok.focus({ preventScroll: true });
+    render();
+  });
+  svg.addEventListener("pointermove", e => {
+    if (bend && e.pointerId === bend.id) {
+      // Der Punkt liegt auf der Kurvenmitte, der Kontrollpunkt ist doppelt so weit von der Sehne entfernt
+      const pt = toField(e), a = state.arrows[bend.k];
+      a.cx = Math.round(clamp(2 * pt.x - (a.x1 + a.x2) / 2, -30, W + 30) * 10) / 10;
+      a.cy = Math.round(clamp(2 * pt.y - (a.y1 + a.y2) / 2, -30, H + 30) * 10) / 10;
+      bend.moved = true;
+      schedule();
+      return;
+    }
+    if (drawing && e.pointerId === drawing.id) {
+      const pt = toField(e);
+      drawing.arrow = arrowBetween(drawing.start, snapPoint({ x: clamp(pt.x, 0, W), y: clamp(pt.y, 0, H) }), drawing.arrow.k);
+      schedule();
+      return;
+    }
+    if (!drag || e.pointerId !== drag.id) return;
+    const pt = toField(e);
+    if (drag.group) {
+      // Alle um denselben Versatz, begrenzt durch den ersten, der an eine Linie stößt
+      const me = drag.group.find(q => q.p === drag.obj), xs = drag.group.map(q => q.x), ys = drag.group.map(q => q.y);
+      const mx = clamp(pt.x - drag.dx - me.x, -Math.min(...xs), W - Math.max(...xs));
+      const my = clamp(pt.y - drag.dy - me.y, -Math.min(...ys), H - Math.max(...ys));
+      for (const q of drag.group) { q.p.x = q.x + mx; q.p.y = q.y + my; }
+    } else {
+      // In der freien Situation darf ein Spieler bis auf die Bank gezogen werden
+      drag.obj.x = clamp(pt.x - drag.dx, 0, W);
+      drag.obj.y = clamp(pt.y - drag.dy, 0, isFree() && drag.player ? H + 9 : H);
+    }
+    drag.moved = true;
+    schedule();
+  });
+  const endDrag = e => {
+    if (bend && e.pointerId === bend.id) {
+      const a = state.arrows[bend.k];
+      // Fast gerade gezogen: wieder als gerader Pfeil speichern
+      if (a && a.cx !== undefined && Math.hypot(a.cx - (a.x1 + a.x2) / 2, a.cy - (a.y1 + a.y2) / 2) < 1) { delete a.cx; delete a.cy; }
+      if (bend.moved) { remember(bend.before); save(); }
+      bend = null;
+      render();
+      return;
+    }
+    if (drawing && e.pointerId === drawing.id) {
+      const a = drawing.arrow;
+      drawing = null;
+      if (Math.hypot(a.x2 - a.x1, a.y2 - a.y1) >= 1.5) {
+        remember();
+        state.arrows.push(a);
+        if (state.arrows.length > 80) state.arrows.shift();
+        selArrow = state.arrows.length - 1;
+        sel = null;
+        save();
+      }
+      render();
+      return;
+    }
+    if (!drag || e.pointerId !== drag.id) return;
+    if (isFree() && drag.player && !drag.group && drag.obj.y > H + 1) removeToBench(drag.obj);
+    else drag.obj.y = Math.min(drag.obj.y, H);
+    if (drag.obj === state.ball) attachBall();
+    if (drag.player && !drag.moved && !drag.fromBench) handleTap(drag.obj);
+    if (drag.moved) remember(drag.before);
+    drag = null;
+    svg.classList.remove("dragging");
+    render();
+    save();
+  };
+  svg.addEventListener("pointerup", endDrag);
+  svg.addEventListener("pointercancel", endDrag);
+  svg.addEventListener("touchstart", e => {
+    if (e.target.closest("[data-drag]") || (isFree() && tool !== "move")) e.preventDefault();
+  }, { passive: false });
+
+  // Bank per Tastatur: Enter oder Leertaste stellt den Spieler auf seine Spielfeldhälfte
+  L.bench.addEventListener("keydown", e => {
+    const tok = e.target.closest("[data-drag='bench']");
+    if (!tok || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault();
+    remember();
+    const t = tok.dataset.team, n = players(t).length;
+    placeFromBench(t, state.free[t][+tok.dataset.slot], t === "home" ? 40 : 65, 14 + (n * 7) % 42);
+    render();
+    save();
+  });
+
+  L.tokens.addEventListener("focusin", e => {
+    const tok = e.target.closest(".token");
+    if (!tok || isSel(tok.dataset.team, +tok.dataset.i)) return;
+    sel = { t: tok.dataset.team, i: +tok.dataset.i };
+    render();
+  });
+  L.tokens.addEventListener("keydown", e => {
+    const tok = e.target.closest("[data-drag]");
+    if (!tok) return;
+    if (e.key === "Escape") { sel = null; tok.blur(); render(); return; }
+    if (e.key === "Enter" && tok.dataset.drag === "player") { e.preventDefault(); passTo(targetOf(tok)); return; }
+    if ((e.key === "Delete" || e.key === "Backspace") && isFree() && tok.dataset.drag === "player") {
+      e.preventDefault();
+      remember();
+      removeToBench(targetOf(tok));
+      render();
+      save();
+      return;
+    }
+    const dir = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!dir) return;
+    e.preventDefault();
+    cancelTween();
+    const step = e.shiftKey ? 5 : 1, [sx, sy] = dir;
+    // Bildschirmrichtung in Feldrichtung umrechnen (hochkant ist das Feld um 90° gedreht)
+    const dx = portrait ? -sy : sx, dy = portrait ? sx : sy;
+    // Mehrere Pfeiltasten am selben Spieler kurz hintereinander sind ein Rückgängig-Schritt
+    const id = tok.dataset.drag + (tok.dataset.team || "") + (tok.dataset.i || ""), now = performance.now();
+    if (!lastKeyMove || lastKeyMove.id !== id || now - lastKeyMove.t > 1000) remember();
+    lastKeyMove = { id, t: now };
+    const obj = targetOf(tok);
+    if (obj === state.ball) { passId++; state.owner[ownerKey()] = null; }
+    obj.x = clamp(obj.x + dx * step, 0, W);
+    obj.y = clamp(obj.y + dy * step, 0, H);
+    if (obj === state.ball) attachBall();
+    render();
+    save();
+  });
+
+  // ---------- Bedienleiste ----------
+  function buildFormationSelects() {
+    const html = GROUPS.map(([label, keys]) =>
+      `<optgroup label="${label}">${keys.map(k => `<option value="${k}">${k}</option>`).join("")}</optgroup>`).join("");
+    $("#formation-home").innerHTML = html;
+    $("#formation-away").innerHTML = html;
+  }
+
+  function syncControls() {
+    $("#formation-home").value = state.home.formation;
+    $("#formation-away").value = state.away.formation;
+    $("#formation-away").disabled = !state.showAway && !isFree();
+    $("#show-away").checked = state.showAway;
+    $(".app").dataset.mode = state.mode;
+    for (const name of ["mode", "voronoi", "delaunay", "gaps"]) {
+      const el = document.querySelector(`input[name="${name}"][value="${state[name]}"]`);
+      if (el) el.checked = true;
+    }
+    $("#voronoi-away").disabled = !state.showAway && !isFree();
+    $("#delaunay-away").disabled = !state.showAway && !isFree();
+    $("#gaps-away").disabled = !state.showAway && !isFree();
+    for (const k of Object.keys(state.fv)) $("#fv-" + k).checked = state.fv[k];
+    $("#show-circles").checked = state.circles;
+    $("#show-thin").checked = state.thin;
+    $("#show-shadows").checked = state.shadows;
+  }
+
+  $(".panel").addEventListener("change", e => {
+    const el = e.target;
+    if (el.classList.contains("text-in")) return;
+    if (el.name === "tool") { setTool(el.value); return; }
+    remember();
+    if (el.name === "mode") {
+      // Jede Ansicht behält ihren eigenen Ball
+      if (el.value !== state.mode) [state.ball, state.otherBall] = [state.otherBall || { x: 52.5, y: 34 }, state.ball];
+      state.mode = el.value;
+      cancelTween();
+      sel = null;
+      selArrow = null;
+      drawing = null;
+      setTool("move");
+      syncControls();
+      applyOrientation();
+      save();
+      return;
+    }
+    if (["voronoi", "delaunay", "gaps"].includes(el.name)) state[el.name] = el.value;
+    else if (el.id.startsWith("fv-")) state.fv[el.id.slice(3)] = el.checked;
+    else if (el.id === "formation-home" || el.id === "formation-away") {
+      const t = el.id === "formation-home" ? "home" : "away";
+      state[t].formation = el.value;
+      relayout([t]);
+    }
+    else if (el.id === "show-away") {
+      state.showAway = el.checked;
+      if (!el.checked) {
+        if (state.voronoi === "away") state.voronoi = "all";
+        if (state.delaunay === "away") state.delaunay = "team";
+        if (state.gaps === "away") state.gaps = "off";
+        if (sel && sel.t === "away") sel = null;
+      }
+      syncControls();
+      buildTokens();
+    }
+    else if (el.id === "show-circles") state.circles = el.checked;
+    else if (el.id === "show-thin") state.thin = el.checked;
+    else if (el.id === "show-shadows") state.shadows = el.checked;
+    render();
+    save();
+  });
+  $("#btn-reset").addEventListener("click", () => {
+    remember();
+    state.ball = { x: 52.5, y: 34 };
+    state.owner.lineup = null;
+    relayout(["home", "away"]);
+  });
+  $("#btn-grow").addEventListener("click", grow);
+
+  function setTool(value) {
+    tool = value;
+    const el = document.querySelector(`input[name="tool"][value="${value}"]`);
+    if (el) el.checked = true;
+    svg.classList.toggle("drawing", isFree() && (tool === "run" || tool === "pass"));
+  }
+
+  $("#btn-clear").addEventListener("click", () => {
+    if (!state.arrows.length && !activeTeams().length) return;
+    remember();
+    state.free = emptyFree();
+    state.arrows = [];
+    state.owner.free = null;
+    sel = null;
+    selArrow = null;
+    buildTokens();
+    render();
+    save();
+  });
+  $("#btn-clear-arrows").addEventListener("click", () => {
+    if (!state.arrows.length) return;
+    remember();
+    state.arrows = [];
+    selArrow = null;
+    render();
+    save();
+  });
+
+  // Kürzel und Notiz: Rückgängig-Schritt beim Betreten des Felds merken, beim Verlassen festschreiben
+  const selPlayer = () => isFree() && sel ? players(sel.t)[sel.i] : null;
+  function bindEdit(input, apply) {
+    let before = null;
+    input.addEventListener("focus", () => { before = snapshot(); });
+    input.addEventListener("input", () => { const p = selPlayer(); if (p) { apply(p, input.value); schedule(); } });
+    input.addEventListener("change", () => { if (before) remember(before); before = null; save(); });
+    input.addEventListener("keydown", e => { if (e.key === "Enter") input.blur(); });
+  }
+  bindEdit($("#note-in"), (p, v) => { p.note = v.slice(0, 60); });
+  bindEdit($("#label-in"), (p, v) => {
+    const k = state.free[sel.t].indexOf(p);
+    p.pos = cleanLabel(v) || freeLabel(k);
+  });
+
+  $("#btn-pass-here").addEventListener("click", () => { const p = selPlayer(); if (p) passTo(p); });
+  $("#player-info").addEventListener("click", e => {
+    if (e.target.closest("[data-pass-here]") && sel) passTo(players(sel.t)[sel.i]);
+  });
+
+  $("#btn-remove").addEventListener("click", () => {
+    const p = selPlayer();
+    if (!p) return;
+    remember();
+    removeToBench(p);
+    render();
+    save();
+  });
+
+  // Ausgewählten Pfeil ändern
+  function editArrow(fn) {
+    const a = selArrow !== null ? state.arrows[selArrow] : null;
+    if (!a) return;
+    remember();
+    fn(a);
+    render();
+    save();
+  }
+  const deleteArrow = () => editArrow(() => { state.arrows.splice(selArrow, 1); selArrow = null; });
+  $("#btn-arrow-kind").addEventListener("click", () => editArrow(a => { a.k = a.k === "pass" ? "run" : "pass"; }));
+  $("#btn-straight").addEventListener("click", () => editArrow(a => { delete a.cx; delete a.cy; }));
+  $("#btn-del-arrow").addEventListener("click", deleteArrow);
+  document.addEventListener("keydown", e => {
+    if (!isFree() || selArrow === null || (e.key !== "Delete" && e.key !== "Backspace")) return;
+    if (e.target.closest?.(".text-in")) return;
+    e.preventDefault();
+    deleteArrow();
+  });
+
+  function applyOrientation() {
+    portrait = portraitMq.matches;
+    // Die freie Situation braucht unter dem Feld Platz für die Bank
+    const depth = isFree() ? 85 : 76;
+    svg.setAttribute("viewBox", portrait ? `-4 -4 ${depth} 113` : `-4 -4 113 ${depth}`);
+    svg.classList.toggle("free", isFree());
+    if (portrait) field.setAttribute("transform", "matrix(0 -1 1 0 0 105)");
+    else field.removeAttribute("transform");
+    setTool(tool);
+    buildTokens();
+    render();
+  }
+
+  // ---------- Speichern ----------
+  const snapshot = () => JSON.parse(JSON.stringify({
+    home: state.home, away: state.away, showAway: state.showAway,
+    voronoi: state.voronoi, delaunay: state.delaunay, gaps: state.gaps,
+    circles: state.circles, thin: state.thin, shadows: state.shadows, ball: state.ball,
+    mode: state.mode, fv: state.fv, arrows: state.arrows, owner: state.owner, otherBall: state.otherBall,
+    free: { home: state.free.home.map(({ pos, on, x, y, note }) => ({ pos, on, x, y, note })), away: state.free.away.map(({ pos, on, x, y, note }) => ({ pos, on, x, y, note })) },
+  }));
+
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(snapshot())); } catch (err) { /* Speicher nicht verfügbar */ }
+  }
+
+  function loadLocal() {
+    try { return JSON.parse(localStorage.getItem(KEY)); } catch (err) { return null; }
+  }
+
+  const okPoint = p => p && Number.isFinite(p.x) && Number.isFinite(p.y);
+  const okPlayers = arr => Array.isArray(arr) && arr.length === 11 && arr.every(p => okPoint(p) && typeof p.pos === "string");
+  const pick = (v, allowed, fallback) => allowed.includes(v) ? v : fallback;
+
+  function restore(o) {
+    if (!o || typeof o !== "object") return false;
+    for (const t of ["home", "away"]) {
+      if (!o[t] || !FORMATIONS[o[t].formation] || !okPlayers(o[t].players)) return false;
+    }
+    for (const t of ["home", "away"]) {
+      state[t] = {
+        formation: o[t].formation,
+        players: o[t].players.map(p => ({ pos: p.pos.replace(/[^A-Z0-9]/g, "").slice(0, 4), x: clamp(p.x, 0, W), y: clamp(p.y, 0, H) })),
+      };
+    }
+    state.showAway = o.showAway !== false;
+    state.voronoi = pick(o.voronoi, ["off", "all", "home", "away"], "all");
+    state.delaunay = pick(o.delaunay, ["off", "all", "home", "away", "team"], "team");
+    state.gaps = pick(o.gaps, ["off", "home", "away"], "away");
+    state.circles = o.circles === true;
+    state.thin = o.thin === true;
+    state.shadows = o.shadows === true;
+    if (okPoint(o.ball)) state.ball = { x: clamp(o.ball.x, 0, W), y: clamp(o.ball.y, 0, H) };
+    const okOwner = q => q && ["home", "away"].includes(q.t) && Number.isInteger(q.k) && q.k >= 0 && q.k < 11
+      && Number.isFinite(q.ox) && Number.isFinite(q.oy) ? { t: q.t, k: q.k, ox: clamp(q.ox, -3, 3), oy: clamp(q.oy, -3, 3) } : null;
+    state.otherBall = okPoint(o.otherBall) ? { x: clamp(o.otherBall.x, 0, W), y: clamp(o.otherBall.y, 0, H) } : null;
+    state.owner = { lineup: okOwner(o.owner && o.owner.lineup), free: okOwner(o.owner && o.owner.free) };
+    state.mode = pick(o.mode, ["lineup", "free"], "lineup");
+    const fv = o.fv && typeof o.fv === "object" ? o.fv : {};
+    state.fv = {
+      passes: fv.passes !== undefined ? fv.passes !== false : o.passes !== false,
+      gaps: fv.gaps !== false, net: fv.net !== false, shadows: fv.shadows === true, cells: fv.cells === true,
+    };
+    state.free = emptyFree();
+    if (o.free) for (const t of ["home", "away"]) {
+      const arr = o.free[t];
+      if (!Array.isArray(arr) || arr.length !== 11) continue;
+      arr.forEach((q, k) => {
+        if (!q || !okPoint(q)) return;
+        Object.assign(state.free[t][k], {
+          on: q.on === true, x: clamp(q.x, 0, W), y: clamp(q.y, 0, H),
+          note: typeof q.note === "string" ? q.note.slice(0, 60) : "",
+          pos: (typeof q.pos === "string" && cleanLabel(q.pos)) || freeLabel(k),
+        });
+      });
+    }
+    state.arrows = Array.isArray(o.arrows) ? o.arrows.filter(a => a && ["run", "pass"].includes(a.k)
+      && [a.x1, a.y1, a.x2, a.y2].every(Number.isFinite)).slice(0, 80)
+      .map(a => {
+        const r = { k: a.k, x1: clamp(a.x1, 0, W), y1: clamp(a.y1, 0, H), x2: clamp(a.x2, 0, W), y2: clamp(a.y2, 0, H) };
+        if (Number.isFinite(a.cx) && Number.isFinite(a.cy)) { r.cx = clamp(a.cx, -30, W + 30); r.cy = clamp(a.cy, -30, H + 30); }
+        return r;
+      }) : [];
+    return true;
+  }
+
+  // ---------- Verlauf ----------
+  const undoStack = [], redoStack = [];
+  let lastKeyMove = null;
+
+  function syncHistory() {
+    $("#btn-undo").disabled = !undoStack.length;
+    $("#btn-redo").disabled = !redoStack.length;
+  }
+
+  // Merkt sich den Stand vor einer Änderung
+  function remember(before = snapshot()) {
+    undoStack.push(before);
+    if (undoStack.length > 60) undoStack.shift();
+    redoStack.length = 0;
+    lastKeyMove = null;
+    syncHistory();
+  }
+
+  function applyState() {
+    cancelTween();
+    passId++;
+    sel = null;
+    selArrow = null;
+    drawing = null;
+    bend = null;
+    editFor = null;
+    syncControls();
+    applyOrientation();
+    save();
+  }
+
+  function stepHistory(from, to) {
+    if (!from.length) return;
+    to.push(snapshot());
+    restore(from.pop());
+    lastKeyMove = null;
+    applyState();
+    syncHistory();
+  }
+  const undo = () => stepHistory(undoStack, redoStack);
+  const redo = () => stepHistory(redoStack, undoStack);
+
+  $("#btn-undo").addEventListener("click", undo);
+  $("#btn-redo").addEventListener("click", redo);
+  document.addEventListener("keydown", e => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.target.closest?.(".text-in")) return;
+    const k = e.key.toLowerCase();
+    if (k === "z" && !e.shiftKey) undo();
+    else if ((k === "z" && e.shiftKey) || k === "y") redo();
+    else return;
+    e.preventDefault();
+  });
+
+  // ---------- Situationen ----------
+  // Benannte Stände, als Teilen-Code im Browser abgelegt
+  const SCENES_KEY = "voronoi-taktiktafel-situationen-v1", MAX_SCENES = 40;
+  const sceneMsg = text => { $("#scene-msg").textContent = text; };
+  let scenes = (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(SCENES_KEY));
+      return Array.isArray(v) ? v.filter(s => s && typeof s.name === "string" && typeof s.code === "string").slice(0, MAX_SCENES) : [];
+    } catch (err) { return []; }
+  })();
+
+  function storeScenes() {
+    try { localStorage.setItem(SCENES_KEY, JSON.stringify(scenes)); return true; } catch (err) { return false; }
+  }
+
+  function renderScenes() {
+    $("#scene-list").replaceChildren(...scenes.map((s, k) => {
+      const li = document.createElement("li");
+      li.className = "scene";
+      li.innerHTML = `<button type="button" class="scene-load" data-k="${k}"><strong></strong><span></span></button>
+        <button type="button" class="scene-del" data-k="${k}">×</button>`;
+      li.querySelector("strong").textContent = s.name;
+      li.querySelector("span").textContent = s.meta || "";
+      li.querySelector(".scene-del").setAttribute("aria-label", `${s.name} löschen`);
+      return li;
+    }));
+  }
+
+  $("#scene-form").addEventListener("submit", e => {
+    e.preventDefault();
+    const input = $("#scene-name");
+    const name = input.value.trim().slice(0, 40) || `Situation ${scenes.length + 1}`;
+    const k = scenes.findIndex(s => s.name === name);
+    if (k < 0 && scenes.length >= MAX_SCENES) { sceneMsg(`Mehr als ${MAX_SCENES} Situationen gehen nicht. Lösche zuerst eine.`); return; }
+    const entry = {
+      name, code: encodeState(),
+      meta: isFree() ? `Freie Situation, ${players("home").length} gegen ${players("away").length}`
+        : state.showAway ? `${state.home.formation} gegen ${state.away.formation}` : `${state.home.formation}, ohne Gegner`,
+    };
+    if (k >= 0) scenes[k] = entry; else scenes.unshift(entry);
+    input.value = "";
+    renderScenes();
+    sceneMsg(!storeScenes() ? "Dieser Browser erlaubt kein Speichern. Die Situation gilt nur bis zum Neuladen."
+      : k >= 0 ? `„${name}“ aktualisiert.` : `„${name}“ gespeichert. Sie bleibt in diesem Browser erhalten.`);
+  });
+
+  $("#scene-list").addEventListener("click", e => {
+    const btn = e.target.closest("button[data-k]");
+    if (!btn) return;
+    const s = scenes[+btn.dataset.k];
+    if (!s) return;
+    if (btn.classList.contains("scene-del")) {
+      // Erst nachfragen: der erste Klick schärft, der zweite löscht
+      if (btn.dataset.armed !== "1") {
+        btn.dataset.armed = "1";
+        btn.textContent = "Löschen?";
+        btn.style.width = "auto";
+        setTimeout(() => { if (btn.isConnected) renderScenes(); }, 3000);
+        return;
+      }
+      scenes.splice(+btn.dataset.k, 1);
+      storeScenes();
+      renderScenes();
+      sceneMsg(`„${s.name}“ gelöscht.`);
+      return;
+    }
+    const before = snapshot();
+    if (!restore(decodeState(s.code))) { sceneMsg(`„${s.name}“ lässt sich nicht mehr laden.`); return; }
+    remember(before);
+    applyState();
+    sceneMsg(`„${s.name}“ geladen.`);
+  });
+
+  // ---------- Teilen ----------
+  // Kompakter Code: Positionen in Dezimetern, Formation und Schalter, als base64url
+  const CODE_PREFIX = "TT1.";
+  const standalone = (() => {
+    try { return window.top === window && /^(https?|file):$/.test(location.protocol); } catch (err) { return false; }
+  })();
+  const downloadsCap = window.claude?.use ? window.claude.use("downloads").catch(() => null) : Promise.resolve(null);
+  const shareMsg = text => { $("#share-msg").textContent = text; };
+
+  function encodeState() {
+    const pts = arr => arr.flatMap(p => [Math.round(p.x * 10), Math.round(p.y * 10)]);
+    const o = {
+      h: state.home.formation, hp: pts(state.home.players),
+      a: state.away.formation, ap: pts(state.away.players),
+      b: pts([state.ball]),
+      // erster Platz war früher die Ausgangslage und bleibt für ältere Codes reserviert
+      o: ["play", state.showAway ? 1 : 0, state.voronoi, state.delaunay, state.gaps, state.circles ? 1 : 0, state.thin ? 1 : 0, state.fv.passes ? 1 : 0],
+    };
+    // Freie Situation: nur Spieler auf dem Feld als [Bankplatz, x, y, Notiz], Pfeile als [Art, x1, y1, x2, y2]
+    const onField = t => state.free[t].flatMap((p, k) => p.on
+      ? [[k, Math.round(p.x * 10), Math.round(p.y * 10), p.note, ...(p.pos !== freeLabel(k) ? [p.pos] : [])]] : []);
+    if (isFree()) o.m = 1;
+    const own = q => q ? [q.t === "home" ? 0 : 1, q.k, Math.round(q.ox * 10), Math.round(q.oy * 10)] : undefined;
+    if (state.owner.lineup) o.bl = own(state.owner.lineup);
+    if (state.owner.free) o.bf = own(state.owner.free);
+    o.v = ["passes", "gaps", "net", "cells", "shadows"].map(k => state.fv[k] ? 1 : 0);
+    if (state.shadows) o.sh = 1;
+    if (state.free.home.some(p => p.on) || state.free.away.some(p => p.on)) o.f = { h: onField("home"), a: onField("away") };
+    if (state.arrows.length) o.r = state.arrows.map(a => [a.k === "pass" ? 1 : 0,
+      ...[a.x1, a.y1, a.x2, a.y2, ...(a.cx !== undefined ? [a.cx, a.cy] : [])].map(n => Math.round(n * 10))]);
+    // UTF-8, damit Umlaute in Notizen den Code überstehen
+    let bin = "";
+    new TextEncoder().encode(JSON.stringify(o)).forEach(c => { bin += String.fromCharCode(c); });
+    return CODE_PREFIX + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function decodeState(text) {
+    const m = String(text || "").match(/TT1\.([A-Za-z0-9_-]+)/);
+    if (!m) return null;
+    try {
+      let b = m[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (b.length % 4) b += "=";
+      const o = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b), c => c.charCodeAt(0))));
+      const lineup = (key, side, arr) => {
+        if (!FORMATIONS[key] || !Array.isArray(arr) || arr.length !== 22) return null;
+        return layout(key, side).map((q, i) => ({ pos: q.pos, x: arr[2 * i] / 10, y: arr[2 * i + 1] / 10 }));
+      };
+      const [, showAway, voronoi, delaunay, gaps, circles, thin, passes] = Array.isArray(o.o) ? o.o : [];
+      const free = {};
+      for (const [t, key] of [["home", "h"], ["away", "a"]]) {
+        free[t] = Array.from({ length: 11 }, () => ({ on: false, x: 0, y: 0, note: "", pos: "" }));
+        const list = o.f && Array.isArray(o.f[key]) ? o.f[key] : [];
+        for (const e of list) {
+          if (!Array.isArray(e) || !free[t][e[0]]) continue;
+          free[t][e[0]] = { on: true, x: e[1] / 10, y: e[2] / 10, note: typeof e[3] === "string" ? e[3] : "", pos: typeof e[4] === "string" ? e[4] : "" };
+        }
+      }
+      return {
+        home: { formation: o.h, players: lineup(o.h, "home", o.hp) },
+        away: { formation: o.a, players: lineup(o.a, "away", o.ap) },
+        showAway: showAway !== 0, voronoi, delaunay, gaps, circles: circles === 1, thin: thin === 1, passes: passes !== 0,
+        fv: Array.isArray(o.v) ? { passes: o.v[0] !== 0, gaps: o.v[1] !== 0, net: o.v[2] !== 0, cells: o.v[3] === 1, shadows: o.v[4] === 1 } : undefined,
+        shadows: o.sh === 1,
+        ball: Array.isArray(o.b) ? { x: o.b[0] / 10, y: o.b[1] / 10 } : null,
+        mode: o.m === 1 ? "free" : "lineup", free,
+        owner: Object.fromEntries([["lineup", o.bl], ["free", o.bf]].map(([key, q]) => [key,
+          Array.isArray(q) ? { t: q[0] === 1 ? "away" : "home", k: q[1], ox: q[2] / 10, oy: q[3] / 10 } : null])),
+        arrows: Array.isArray(o.r) ? o.r.filter(Array.isArray).map(([k, x1, y1, x2, y2, cx, cy]) => ({
+          k: k === 1 ? "pass" : "run", x1: x1 / 10, y1: y1 / 10, x2: x2 / 10, y2: y2 / 10,
+          ...(Number.isFinite(cx) && Number.isFinite(cy) ? { cx: cx / 10, cy: cy / 10 } : {}),
+        })) : [],
+      };
+    } catch (err) { return null; }
+  }
+
+  async function share() {
+    const code = encodeState();
+    const text = standalone ? location.href.split("#")[0] + "#s=" + code : code;
+    const out = $("#share-out");
+    out.hidden = false;
+    out.value = text;
+    try {
+      await navigator.clipboard.writeText(text);
+      shareMsg(standalone
+        ? "Link kopiert. Wer ihn öffnet, sieht genau diese Situation."
+        : "Code kopiert. Schick ihn zusammen mit dem Link zur Tafel, dort unter „Geteilte Situation laden“ einfügen.");
+    } catch (err) {
+      out.focus();
+      out.select();
+      shareMsg("Automatisches Kopieren ging nicht. Der Text ist markiert, kopiere ihn mit ⌘C bzw. Strg+C.");
+    }
+  }
+
+  $("#share-form").addEventListener("submit", e => {
+    e.preventDefault();
+    const input = $("#share-in"), before = snapshot();
+    if (!restore(decodeState(input.value))) {
+      shareMsg("Das ist kein gültiger Link oder Code einer Taktiktafel.");
+      return;
+    }
+    remember(before);
+    input.value = "";
+    applyState();
+    shareMsg("Situation geladen.");
+  });
+  $("#btn-share").addEventListener("click", share);
+
+  // Bild: Spielfeld mit aufgelösten Stilen als SVG rendern und auf ein Canvas zeichnen
+  const STYLE_PROPS = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity", "stroke-dasharray", "stroke-linecap",
+    "opacity", "font-family", "font-weight", "font-size", "text-anchor", "dominant-baseline", "paint-order"];
+
+  function boardImage() {
+    const vb = svg.viewBox.baseVal, scale = 20;
+    const clone = svg.cloneNode(true);
+    const src = svg.querySelectorAll("*"), dst = clone.querySelectorAll("*");
+    src.forEach((el, k) => {
+      const cs = getComputedStyle(el);
+      dst[k].setAttribute("style", STYLE_PROPS.map(p => `${p}:${cs.getPropertyValue(p)}`).join(";"));
+      dst[k].removeAttribute("class");
+    });
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", vb.width * scale);
+    clone.setAttribute("height", vb.height * scale);
+    const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }));
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = vb.width * scale;
+        canvas.height = vb.height * scale;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error("toBlob")), "image/png");
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("img")); };
+      img.src = url;
+    });
+  }
+
+  async function exportPng() {
+    const btn = $("#btn-png");
+    btn.disabled = true;
+    try {
+      const blob = await boardImage();
+      const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const filename = `taktiktafel-${slug(state.home.formation)}${state.showAway ? "-gegen-" + slug(state.away.formation) : ""}.png`;
+      const downloads = await downloadsCap;
+      if (downloads) {
+        try {
+          await downloads.save({ filename, data: blob });
+          shareMsg("Bild gespeichert.");
+        } catch (err) {
+          shareMsg(err && err.code === "declined" ? "" : "Speichern ist in dieser Ansicht nicht möglich.");
+        }
+      } else {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        shareMsg("Bild gespeichert.");
+      }
+    } catch (err) {
+      shareMsg("Das Bild konnte nicht erzeugt werden.");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  $("#btn-png").addEventListener("click", exportPng);
+
+  // ---------- Start ----------
+  if (typeof d3 === "undefined" || !d3.Delaunay) {
+    $("#board-error").hidden = false;
+    return;
+  }
+
+  function start(data) {
+    // Geteilter Link hat Vorrang, danach Live-Stand, danach eigener Speicher
+    if (restore(decodeState(location.hash))) {
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (err) { /* egal */ }
+      save();
+    } else if (!restore(data && data.state)) restore(loadLocal());
+    buildFormationSelects();
+    renderScenes();
+    $("#pitch").innerHTML = pitchMarkup();
+    syncControls();
+    buildTokens();
+    applyOrientation();
+    portraitMq.addEventListener("change", applyOrientation);
+  }
+
+  window.claude?.hot?.snapshot?.(() => ({ state: snapshot() }));
+  if (window.claude?.hot?.ready) window.claude.hot.ready(start);
+  else start(window.claude?.hot?.data ?? {});
+})();
+</script>
